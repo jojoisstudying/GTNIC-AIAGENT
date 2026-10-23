@@ -124,10 +124,11 @@ class LLMClient:
                                               "key_id": KeyPool.mask_key(api_key)})
                 return response
             except RateLimitError as exc:
-                # If only 1 key is available, sleep briefly instead of immediately exhausting the pool
-                if len(self.key_pool.keys) <= 1:
-                    time.sleep(3)
-                self.key_pool.cooldown(api_key, duration=5.0 if len(self.key_pool.keys) <= 1 else None)
+                # If only 1 key is available, don't sleep in unit tests with cooldown duration 0
+                cooldown_dur = self.key_pool.cooldown_seconds
+                if len(self.key_pool.keys) <= 1 and cooldown_dur > 0:
+                    time.sleep(min(3, cooldown_dur))
+                self.key_pool.cooldown(api_key, duration=cooldown_dur if cooldown_dur == 0 else (5.0 if len(self.key_pool.keys) <= 1 else None))
                 key_attempts += 1
                 if self.emitter:
                     self.emitter.emit("retry", "groq", step=step, status="key_cooldown_429",
