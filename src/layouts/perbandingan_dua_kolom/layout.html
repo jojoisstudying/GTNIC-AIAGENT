@@ -1,0 +1,20 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline, mark %}
+{% set acc = params.accent_side %}
+{% macro panel(side, label, items, tone, label_slot, items_slot) %}
+<section class="panel {{ tone }}">
+  <div class="plabel" data-q="{{ side }}label" data-slot="{{ label_slot }}" data-min-font="{{ S[label_slot].min_font_px }}">{{ label }}</div>
+  <ul class="plist" data-fit-group="cmp" data-autofit data-q="{{ side }}items" data-slot="{{ items_slot }}" data-max-font="44" data-min-font="{{ S[items_slot].min_font_px }}" data-max-height="500">
+  {% for it in items %}<li>{{ mark("check" if tone == "pos" else "x", 34) }}<span>{{ it|emph(emphasis) }}</span></li>{% endfor %}
+  </ul>
+</section>
+{% endmacro %}
+{% block text_front %}
+<div class="wrap">
+<div class="head">{{ headline(slots.title, emphasis, 92, S.title.min_font_px, 230, 952) }}</div>
+<div class="cmp">
+  {{ panel("l", slots.left_label, slots.left_items, "pos" if acc == "left" else "neg", "left_label", "left_items") }}
+  {{ panel("r", slots.right_label, slots.right_items, "pos" if acc == "right" else "neg", "right_label", "right_items") }}
+</div>
+</div>
+{% endblock %}

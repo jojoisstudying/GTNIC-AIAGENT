@@ -1,0 +1,15 @@
+{
+  "id": "data_angka_besar",
+  "role": "data",
+  "status": "approved",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "data:single_stat",
+    "typo:fit_width_lines"
+  ],
+  "reference_notes": "Satu angka kunci sebesar lebar kanvas; sumber wajib agar patuh guardrail klaim.",
+  "batch": 1
+}

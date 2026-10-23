@@ -1,0 +1,38 @@
+{# Primitif bersama. Semua teks di-escape; emphasis lewat filter emph / title_lines. #}
+{% macro kicker(text, min_font=28) -%}
+{% if text %}<div class="kicker" data-q="kicker" data-slot="kicker" data-min-font="{{ min_font }}">{{ text }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro fit_title(lines, max_font=300, min_font=72, max_height=620, slot="title") -%}
+<h1 class="fit-title" data-fitlines data-q="{{ slot }}" data-slot="{{ slot }}" data-max-font="{{ max_font }}" data-min-font="{{ min_font }}" data-max-height="{{ max_height }}">
+{% for line in lines %}<span class="fl">{{ line }}</span>{% endfor %}
+</h1>
+{%- endmacro %}
+
+{% macro body_text(text, emphasis, max_font=40, min_font=30, max_height=170, width=800, slot="subtitle") -%}
+{% if text %}<p class="body-text" data-autofit data-q="{{ slot }}" data-slot="{{ slot }}" data-max-font="{{ max_font }}" data-min-font="{{ min_font }}" data-max-height="{{ max_height }}" style="width:{{ width }}px">{{ text|emph(emphasis) }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro ghost_word(word, target=1250) -%}
+{% if word %}<div class="ghost" data-fitwidth="{{ target }}" data-min-font="260" data-max-font="560">{{ word }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro divider(width=120) -%}
+<div class="divider" style="width:{{ width }}px"></div>
+{%- endmacro %}
+
+{% macro headline(text, emphasis, max_font=104, min_font=64, max_height=330, width=900, slot="title") -%}
+<h2 class="headline" data-autofit data-q="{{ slot }}" data-slot="{{ slot }}" data-max-font="{{ max_font }}" data-min-font="{{ min_font }}" data-max-height="{{ max_height }}" style="width:{{ width }}px">{{ text|emph(emphasis) }}</h2>
+{%- endmacro %}
+
+{% macro icon(name, size=120, stroke=2) -%}{{ icon_svg(name, size, stroke) }}{%- endmacro %}
+
+{% macro mark(kind, size=36, stroke=2.6) -%}{{ mark_svg(kind, size, stroke) }}{%- endmacro %}
+
+{% macro cutout(url, cls="") -%}
+{% if url %}<img class="cutout {{ cls }}" src="{{ url }}" alt="">{% endif %}
+{%- endmacro %}
+
+{% macro photo_window(url, cls="") -%}
+{% if url %}<div class="pwin {{ cls }}"><img src="{{ url }}" alt=""></div>{% endif %}
+{%- endmacro %}

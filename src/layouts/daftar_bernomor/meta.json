@@ -1,0 +1,15 @@
+{
+  "id": "daftar_bernomor",
+  "role": "daftar",
+  "status": "approved",
+  "density": "high",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "list:numbered",
+    "rows:divided"
+  ],
+  "reference_notes": "3-5 poin sejajar; baris dibagi rata, nomor selalu konsisten (badge atau outline).",
+  "batch": 1
+}

@@ -1,0 +1,13 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import divider %}
+{% block text_back %}<div class="qmark">&ldquo;</div>{% endblock %}
+{% block text_front %}
+<div class="col">
+  <blockquote class="quote" data-autofit data-q="quote" data-slot="quote" data-max-font="78" data-min-font="{{ S.quote.min_font_px }}" data-max-height="470">{{ slots.quote|emph(emphasis) }}</blockquote>
+  <div class="by">
+    {{ divider(96) }}
+    <p class="name" data-q="name" data-slot="name" data-min-font="{{ S.name.min_font_px }}">{{ slots.name }}</p>
+    {% if slots.source %}<p class="src" data-q="source" data-slot="source" data-min-font="{{ S.source.min_font_px }}">{{ slots.source }}</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

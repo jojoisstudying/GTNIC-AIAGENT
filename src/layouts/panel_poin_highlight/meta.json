@@ -1,0 +1,15 @@
+{
+  "id": "panel_poin_highlight",
+  "role": "daftar",
+  "status": "draft",
+  "density": "high",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "list:cards",
+    "deco:feature_card"
+  ],
+  "reference_notes": "Poin disusun sebagai kartu; poin pertama jadi kartu utama berwarna aksen (bisa dimatikan lewat param).",
+  "batch": 3
+}

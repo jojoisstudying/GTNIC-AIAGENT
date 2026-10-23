@@ -1,0 +1,7 @@
+.L-bukti_kutipan .qmark{position:absolute;left:46px;top:150px;font-family:var(--f-display);font-weight:700;font-size:420px;line-height:.8;color:var(--accent)}
+.L-bukti_kutipan .col{position:absolute;left:64px;width:952px;top:520px;bottom:200px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-bukti_kutipan .quote{width:952px;font-family:var(--f-display);font-weight:700;line-height:1.15;letter-spacing:-.01em;color:var(--fg)}
+.L-bukti_kutipan .by{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.L-bukti_kutipan .divider{height:8px;margin-bottom:10px}
+.L-bukti_kutipan .name{font-family:var(--f-display);font-weight:700;font-size:38px;line-height:1.1;white-space:nowrap}
+.L-bukti_kutipan .src{font-family:var(--f-medium);font-weight:500;font-size:28px;color:var(--muted);white-space:nowrap}

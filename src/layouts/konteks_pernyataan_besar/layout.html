@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline, body_text %}
+{% block text_front %}
+<div class="stack">
+  <div class="top">{{ kicker(slots.kicker, S.kicker.min_font_px) }}</div>
+  <div class="st">{{ headline(slots.statement, emphasis, 118, S.statement.min_font_px, 620, 878, "statement") }}</div>
+  <div class="bot">{{ body_text(slots.context, emphasis, 36, S.context.min_font_px, 200, 880, "context") }}</div>
+</div>
+{% endblock %}

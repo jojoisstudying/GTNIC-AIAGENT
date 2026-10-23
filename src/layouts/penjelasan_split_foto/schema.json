@@ -1,0 +1,10 @@
+{
+  "slots": {
+    "title":  {"type": "text", "required": true, "min_chars": 8, "max_chars": 52, "min_font_px": 56, "emphasis": true},
+    "body":   {"type": "text", "required": true, "min_chars": 20, "max_chars": 190, "min_font_px": 30, "emphasis": true},
+    "kicker": {"type": "text", "required": false, "max_chars": 24, "min_font_px": 28}
+  },
+  "params": {
+    "photo_side": {"enum": ["right", "left"], "default": "right"}
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 44,
+      "min_font_px": 60,
+      "emphasis": true
+    },
+    "value_1": {
+      "type": "text",
+      "required": true,
+      "min_chars": 1,
+      "max_chars": 6,
+      "min_font_px": 96
+    },
+    "label_1": {
+      "type": "text",
+      "required": true,
+      "min_chars": 6,
+      "max_chars": 44,
+      "min_font_px": 30
+    },
+    "value_2": {
+      "type": "text",
+      "required": true,
+      "min_chars": 1,
+      "max_chars": 6,
+      "min_font_px": 96
+    },
+    "label_2": {
+      "type": "text",
+      "required": true,
+      "min_chars": 6,
+      "max_chars": 44,
+      "min_font_px": 30
+    },
+    "value_3": {
+      "type": "text",
+      "required": true,
+      "min_chars": 1,
+      "max_chars": 6,
+      "min_font_px": 96
+    },
+    "label_3": {
+      "type": "text",
+      "required": true,
+      "min_chars": 6,
+      "max_chars": 44,
+      "min_font_px": 30
+    },
+    "source": {
+      "type": "text",
+      "required": true,
+      "min_chars": 3,
+      "max_chars": 64,
+      "min_font_px": 24
+    }
+  },
+  "params": {
+    "accent_row": {
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "none"
+      ],
+      "default": "1"
+    }
+  }
+}

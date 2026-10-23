@@ -1,0 +1,8 @@
+.L-rangkuman_checklist .head{position:absolute;left:64px;top:190px;height:290px;width:952px;display:flex;flex-direction:column;justify-content:flex-end}
+.L-rangkuman_checklist .card{position:absolute;left:64px;width:952px;list-style:none;padding:12px 34px;border-radius:44px;background:var(--fill-soft);border:2px solid var(--line);overflow:hidden}
+.L-rangkuman_checklist .row{display:flex;align-items:center;gap:28px}
+.L-rangkuman_checklist .row + .row{border-top:2px solid var(--line)}
+.L-rangkuman_checklist .box{flex:none;width:60px;height:60px;border-radius:16px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center}
+.L-rangkuman_checklist .box svg{width:36px;height:36px}
+.L-rangkuman_checklist .it{width:796px;font-family:var(--f-medium);font-weight:500;line-height:1.22;color:var(--fg)}
+.L-rangkuman_checklist .note{position:absolute;left:64px;top:1108px;display:flex;align-items:center;gap:14px;font-family:var(--f-medium);font-weight:500;font-size:28px;color:var(--fg)}

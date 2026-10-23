@@ -1,0 +1,15 @@
+{
+  "id": "bukti_kutipan",
+  "role": "bukti",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "quote:big",
+    "typo:statement"
+  ],
+  "reference_notes": "Kutipan besar dengan tanda kutip aksen. Kutipan HANYA dari sumber nyata (riset/testimoni), tidak pernah dikarang.",
+  "batch": 3
+}

@@ -1,0 +1,5 @@
+.L-langkah_nomor_besar .bignum{position:absolute;left:52px;top:150px;font-family:var(--f-display);font-weight:700;font-size:440px;line-height:.82;letter-spacing:-.05em;white-space:nowrap}
+.L-langkah_nomor_besar .bignum.fill{color:var(--accent)}
+.L-langkah_nomor_besar .bignum.outline{color:transparent;-webkit-text-stroke:6px var(--accent)}
+.L-langkah_nomor_besar .ghost{left:-34px;top:170px}
+.L-langkah_nomor_besar .col{position:absolute;left:64px;width:952px;top:540px;bottom:200px;display:flex;flex-direction:column;justify-content:flex-end;gap:28px;align-items:flex-start}

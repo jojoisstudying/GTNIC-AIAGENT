@@ -1,0 +1,33 @@
+{
+  "min": {
+    "slots": {
+      "statement": "Keselamatan bukan prioritas tambahan, tapi dasar."
+    },
+    "params": {},
+    "emphasis": [
+      "dasar"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Pengingat",
+      "statement": "Mesin yang dirawat hari ini menyelamatkan produksi esok hari.",
+      "context": "Cek rutin lima menit sebelum shift sering lebih murah daripada perbaikan besar."
+    },
+    "params": {},
+    "emphasis": [
+      "dirawat"
+    ]
+  },
+  "max": {
+    "slots": {
+      "kicker": "Catatan penting",
+      "statement": "Setiap insiden kecil adalah peringatan, bukan kebetulan yang bisa diabaikan begitu saja.",
+      "context": "Laporkan sekecil apa pun kejadiannya agar tim bisa belajar sebelum masalah menjadi besar."
+    },
+    "params": {},
+    "emphasis": [
+      "peringatan"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "langkah_diagram_alur",
+  "role": "langkah",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "flow:zigzag",
+    "deco:arrows"
+  ],
+  "reference_notes": "Alur zigzag: kotak langkah berselang-seling kiri-kanan dihubungkan panah melengkung; kotak terakhir (hasil) berwarna aksen.",
+  "batch": 4
+}

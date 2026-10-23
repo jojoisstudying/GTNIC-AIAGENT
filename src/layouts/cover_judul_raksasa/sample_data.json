@@ -1,0 +1,19 @@
+{
+  "min": {
+    "slots": {"title": "Aman Kerja"},
+    "params": {},
+    "emphasis": ["Aman"]
+  },
+  "typical": {
+    "slots": {"kicker": "Panduan singkat", "title": "Cara Aman Memakai Mesin Press",
+              "subtitle": "Lima kebiasaan kecil yang mencegah cedera di lantai produksi."},
+    "params": {},
+    "emphasis": ["Aman"]
+  },
+  "max": {
+    "slots": {"kicker": "Checklist keselamatan harian", "title": "Kenapa Perawatan Mesin Rutin Menghemat Biaya",
+              "subtitle": "Perawatan terjadwal menekan mesin mendadak berhenti, menjaga kualitas, dan membuat tim lebih tenang."},
+    "params": {"lines": "4"},
+    "emphasis": ["Perawatan", "Menghemat"]
+  }
+}

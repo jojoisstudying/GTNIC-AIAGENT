@@ -1,0 +1,36 @@
+{
+  "min": {
+    "slots": {
+      "title": "Kerja Aman Dimulai Dari Kebiasaan",
+      "body": "Kebiasaan kecil yang dilakukan setiap hari lebih kuat dari aturan yang hanya dibaca."
+    },
+    "params": {},
+    "emphasis": [
+      "Aman"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Prinsip kami",
+      "title": "Rapi Itu Bagian Dari Keselamatan",
+      "body": "Area kerja yang tertata membuat bahaya lebih mudah terlihat dan alat selalu ada di tempatnya."
+    },
+    "params": {
+      "lines": "3"
+    },
+    "emphasis": [
+      "Keselamatan"
+    ]
+  },
+  "max": {
+    "slots": {
+      "kicker": "Prinsip kami",
+      "title": "Mesin Terawat Membuat Produksi Berjalan Tenang",
+      "body": "Perawatan terjadwal menemukan masalah kecil sebelum membesar, sehingga tim bisa fokus bekerja tanpa khawatir mesin berhenti mendadak."
+    },
+    "params": {},
+    "emphasis": [
+      "Terawat"
+    ]
+  }
+}

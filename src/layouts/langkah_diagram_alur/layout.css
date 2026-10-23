@@ -1,0 +1,7 @@
+.L-langkah_diagram_alur .head{position:absolute;left:64px;top:190px;height:250px;width:952px;display:flex;flex-direction:column;justify-content:flex-end}
+.L-langkah_diagram_alur .flow{position:absolute;left:0;top:0}
+.L-langkah_diagram_alur .node{position:absolute;width:620px;display:flex;align-items:center;gap:20px;padding:0 28px;border-radius:36px;background:var(--bg);border:3px solid var(--line);color:var(--fg)}
+.L-langkah_diagram_alur .node.last{background:var(--accent);border-color:transparent;color:var(--accent-fg)}
+.L-langkah_diagram_alur .nb{flex:none;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font-family:var(--f-display);font-weight:700;font-size:28px;line-height:1;background:var(--accent);color:var(--accent-fg)}
+.L-langkah_diagram_alur .node.last .nb{background:var(--accent-fg);color:var(--accent)}
+.L-langkah_diagram_alur .ns{width:480px;font-family:var(--f-medium);font-weight:500;line-height:1.2}

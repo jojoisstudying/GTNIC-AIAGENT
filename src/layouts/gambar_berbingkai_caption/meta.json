@@ -1,0 +1,20 @@
+{
+  "id": "gambar_berbingkai_caption",
+  "role": "penjelasan",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "menunjuk",
+    "pegang_laptop",
+    "pegang_tablet"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "photo:frame",
+    "deco:tilt"
+  ],
+  "reference_notes": "Foto operator di dalam bingkai membulat yang sedikit miring, caption di bawah. Cocok sebagai jeda visual di tengah carousel.",
+  "batch": 3
+}

@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, fit_title, body_text, cutout %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block photo %}
+<div class="glow"></div>
+{{ cutout(photo_url, "side-" ~ params.photo_side) }}
+<div class="scrim"></div>
+{% endblock %}
+{% block text_front %}
+<div class="stack">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ fit_title(lines, 240, S.title.min_font_px, 420 if not slots.subtitle else 350) }}
+  {{ body_text(slots.subtitle, emphasis, 38, S.subtitle.min_font_px, 110, 860) }}
+</div>
+{% endblock %}

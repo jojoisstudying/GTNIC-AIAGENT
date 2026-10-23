@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, fit_title, body_text %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block text_front %}
+<div class="stack">
+  <div class="top">
+    {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+    {{ fit_title(lines, 190, S.title.min_font_px, 560) }}
+  </div>
+  <div class="bot">
+    <div class="rule"></div>
+    {{ body_text(slots.body, emphasis, 38, S.body.min_font_px, 300, 580, "body") }}
+  </div>
+</div>
+{% endblock %}

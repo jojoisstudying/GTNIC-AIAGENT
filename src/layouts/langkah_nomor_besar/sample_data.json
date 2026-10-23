@@ -1,0 +1,39 @@
+{
+  "min": {
+    "slots": {
+      "number": "1",
+      "title": "Siapkan Alat Kerja",
+      "body": "Periksa semua alat sebelum shift dimulai agar tidak ada yang tertinggal."
+    },
+    "params": {},
+    "emphasis": [
+      "Alat"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "number": "02",
+      "kicker": "Langkah 2",
+      "title": "Cek Kondisi Mesin Dulu",
+      "body": "Lihat indikator, dengar suara mesin, dan catat bila ada yang tidak biasa sebelum menyalakannya."
+    },
+    "params": {
+      "numeral": "outline"
+    },
+    "emphasis": [
+      "Mesin"
+    ]
+  },
+  "max": {
+    "slots": {
+      "number": "03",
+      "kicker": "Langkah terakhir",
+      "title": "Catat Hasil Pemeriksaan Harian",
+      "body": "Tulis temuan di logbook sebelum meninggalkan area kerja. Catatan singkat yang rutin membantu tim shift berikutnya mengambil keputusan lebih cepat."
+    },
+    "params": {},
+    "emphasis": [
+      "Catat"
+    ]
+  }
+}

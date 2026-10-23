@@ -1,0 +1,5 @@
+.L-cover_judul_raksasa .stack{position:absolute;left:64px;right:64px;display:flex;flex-direction:column;align-items:flex-start;gap:32px}
+.L-cover_judul_raksasa .stack.pos-bottom{bottom:200px}
+.L-cover_judul_raksasa .stack.pos-top{top:200px}
+.L-cover_judul_raksasa .stack.pos-middle{top:50%;transform:translateY(-52%)}
+.L-cover_judul_raksasa .ghost{left:-34px;top:170px}

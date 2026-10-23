@@ -1,0 +1,7 @@
+.L-daftar_bernomor .head{position:absolute;left:64px;top:190px;height:340px;width:952px;display:flex;flex-direction:column;justify-content:flex-end;gap:22px;align-items:flex-start}
+.L-daftar_bernomor .rows{position:absolute;left:64px;width:952px;list-style:none;display:flex;flex-direction:column}
+.L-daftar_bernomor .row{display:flex;align-items:center;gap:34px;border-top:2px solid var(--line)}
+.L-daftar_bernomor .num{flex:none;font-family:var(--f-display);font-weight:700;line-height:1;display:grid;place-items:center}
+.L-daftar_bernomor .num.badge{width:92px;height:92px;border-radius:24px;background:var(--accent);color:var(--accent-fg);font-size:52px}
+.L-daftar_bernomor .num.outline{width:110px;font-size:110px;color:transparent;-webkit-text-stroke:3px var(--fg)}
+.L-daftar_bernomor .item{width:790px;font-family:var(--f-medium);font-weight:500;line-height:1.25;color:var(--fg)}

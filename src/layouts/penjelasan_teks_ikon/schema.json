@@ -1,0 +1,11 @@
+{
+  "slots": {
+    "title": {"type": "text", "required": true, "min_chars": 8, "max_chars": 56, "min_font_px": 64, "emphasis": true},
+    "body":  {"type": "text", "required": true, "min_chars": 20, "max_chars": 220, "min_font_px": 30, "emphasis": true},
+    "icon":  {"type": "icon", "required": true}
+  },
+  "params": {
+    "pos": {"enum": ["middle", "top", "bottom"], "default": "middle"},
+    "icon_style": {"enum": ["badge", "plain"], "default": "badge"}
+  }
+}

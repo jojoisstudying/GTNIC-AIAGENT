@@ -1,0 +1,13 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, fit_title, body_text, ghost_word, divider %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block text_back %}
+{% if params.ghost != "none" %}{{ ghost_word(first_word(slots.title) if params.ghost == "first" else last_word(slots.title)) }}{% endif %}
+{% endblock %}
+{% block text_front %}
+<div class="stack pos-{{ params.pos }}">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ fit_title(lines, 300, S.title.min_font_px, 640 if not slots.subtitle else 560) }}
+  {{ body_text(slots.subtitle, emphasis, 40, S.subtitle.min_font_px, 170, 820) }}
+</div>
+{% endblock %}

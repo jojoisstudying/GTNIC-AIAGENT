@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Cara Kerja Aman", "left_label": "Jangan", "right_label": "Lakukan", "left_items": ["Kerja tanpa helm", "Abaikan alarm"], "right_items": ["Pakai helm", "Cek alarm"]}, "params": {}, "emphasis": ["Aman"]},
+  "typical": {"slots": {"title": "Kebiasaan Lama vs Kebiasaan Aman", "left_label": "Sebelum", "right_label": "Sesudah", "left_items": ["Cek mesin kalau sempat", "Catatan di kertas lepas", "Briefing seadanya"], "right_items": ["Cek mesin tiap shift", "Logbook terpusat", "Briefing 10 menit"]},
+              "params": {"accent_side": "left"}, "emphasis": []},
+  "max": {"slots": {"title": "Mitos dan Fakta Perawatan Mesin Rutin", "left_label": "Mitos", "right_label": "Fakta", "left_items": ["Mesin baru tidak perlu dirawat dulu", "Perawatan hanya menambah biaya", "Rusak dulu baru diperbaiki saja", "Cukup dicek saat ada keluhan"], "right_items": ["Perawatan dini memperpanjang umur mesin", "Biaya kecil mencegah kerusakan besar", "Mencegah lebih murah daripada memperbaiki", "Cek terjadwal menemukan masalah lebih awal"]},
+          "params": {}, "emphasis": ["Fakta"]}
+}

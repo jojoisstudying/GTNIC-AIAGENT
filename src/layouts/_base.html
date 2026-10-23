@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<style>{{ fonts_css|safe }}</style>
+<style>:root{ {{ css_vars|safe }} }</style>
+<style>{{ base_css|safe }}</style>
+<style>{{ prim_css|safe }}</style>
+<style>{{ layout_css|safe }}</style>
+</head>
+<body>
+<div class="canvas L-{{ layout_id }}" id="canvas" data-surface="{{ surface }}" data-emph="{{ emphasis_style }}">
+  <div class="layer l-bg">{{ bg }}</div>
+  <div class="layer l-deco">{{ deco }}</div>
+  <div class="layer l-text-back">{% block text_back %}{% endblock %}</div>
+  <div class="layer l-photo">{% block photo %}{% endblock %}</div>
+  <div class="layer l-text-front">{% block text_front %}{% endblock %}</div>
+  <div class="layer l-props">{% block props %}{% endblock %}</div>
+  <div class="layer l-chrome">{{ chrome }}</div>
+</div>
+<script>{{ autofit_js|safe }}</script>
+</body></html>

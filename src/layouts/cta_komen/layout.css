@@ -1,0 +1,10 @@
+.L-cta_komen .stack{position:absolute;left:64px;right:64px;top:190px;bottom:210px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-cta_komen .mid{display:flex;flex-direction:column;gap:44px;align-items:flex-start}
+.L-cta_komen .bubble{position:relative;display:inline-flex;align-items:center;gap:32px;padding:30px 52px 34px;border-radius:56px;background:var(--accent);color:var(--accent-fg)}
+.L-cta_komen .bubble::after{content:"";position:absolute;bottom:-34px;border-style:solid;border-width:36px 8px 0 40px;border-color:var(--accent) transparent transparent transparent}
+.L-cta_komen .bubble.tail-left::after{left:70px}
+.L-cta_komen .bubble.tail-right::after{right:70px;border-width:36px 40px 0 8px}
+.L-cta_komen .verb{font-family:var(--f-medium);font-weight:500;font-size:40px;white-space:nowrap}
+.L-cta_komen .key{width:560px;font-family:var(--f-display);font-weight:700;line-height:1.05;letter-spacing:-.01em;white-space:nowrap}
+.L-cta_komen .secondary{display:flex;align-items:center;gap:16px;font-family:var(--f-medium);font-weight:500;font-size:34px;color:var(--fg)}
+.L-cta_komen .secondary svg{flex:none}

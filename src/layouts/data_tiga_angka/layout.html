@@ -1,0 +1,16 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline %}
+{% set top = 490 %}
+{% set row_h = 200 %}
+{% block text_front %}
+<div class="head">{{ headline(slots.title, emphasis, 84, S.title.min_font_px, 230, 952) }}</div>
+<div class="rows" style="top:{{ top }}px">
+{% for i in [1, 2, 3] %}
+  <div class="row" style="height:{{ row_h }}px">
+    <p class="val{{ ' acc' if params.accent_row == i|string else '' }}" data-autofit data-q="v{{ i }}" data-slot="value_{{ i }}" data-max-font="150" data-min-font="{{ S['value_' ~ i].min_font_px }}" data-max-height="{{ row_h - 40 }}">{{ slots['value_' ~ i] }}</p>
+    <p class="lab" data-autofit data-fit-group="lab" data-q="l{{ i }}" data-slot="label_{{ i }}" data-max-font="40" data-min-font="{{ S['label_' ~ i].min_font_px }}" data-max-height="{{ row_h - 40 }}">{{ slots['label_' ~ i]|emph(emphasis) }}</p>
+  </div>
+{% endfor %}
+</div>
+<p class="source" data-q="source" data-slot="source" data-min-font="{{ S.source.min_font_px }}" style="top:{{ top + 3 * row_h + 18 }}px">Sumber: {{ slots.source }}</p>
+{% endblock %}

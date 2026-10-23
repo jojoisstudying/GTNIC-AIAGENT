@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Tiga Aturan Emas", "points": ["Pakai APD lengkap", "Cek mesin sebelum kerja", "Laporkan setiap insiden"]}, "params": {}, "emphasis": ["Emas"]},
+  "typical": {"slots": {"kicker": "Checklist harian", "title": "Lima Kebiasaan Aman di Lantai Produksi", "points": ["Pakai APD lengkap sebelum masuk area", "Cek kondisi mesin dan pengamannya", "Jaga jalur evakuasi tetap bersih", "Jangan bekerja saat terlalu lelah", "Laporkan temuan sekecil apa pun"]},
+              "params": {"numeral": "outline"}, "emphasis": ["Aman"]},
+  "max": {"slots": {"kicker": "Panduan keselamatan harian", "title": "Lima Langkah Menjaga Mesin Tetap Prima", "points": ["Bersihkan sisa material setiap akhir shift kerja", "Periksa pelumas dan tekanan sesuai jadwal rutin", "Catat suhu dan suara tidak biasa pada logbook", "Ganti komponen aus sebelum benar-benar rusak", "Latih operator baru memakai prosedur standar"]},
+          "params": {}, "emphasis": ["Prima"]}
+}

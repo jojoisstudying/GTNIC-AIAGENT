@@ -1,0 +1,14 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline, mark %}
+{% block text_front %}
+<div class="head">{{ headline(slots.title, emphasis, 88, S.title.min_font_px, 230, 952) }}</div>
+<section class="band b1">
+  <span class="chip" data-q="bl" data-slot="before_label" data-min-font="{{ S.before_label.min_font_px }}">{{ slots.before_label or "Sebelum" }}</span>
+  <p class="bt" data-autofit data-q="before" data-slot="before" data-max-font="46" data-min-font="{{ S.before.min_font_px }}" data-max-height="150">{{ slots.before }}</p>
+</section>
+<div class="arr">{{ mark("arrow_down", 44, 3) }}</div>
+<section class="band b2">
+  <span class="chip" data-q="al" data-slot="after_label" data-min-font="{{ S.after_label.min_font_px }}">{{ slots.after_label or "Sesudah" }}</span>
+  <p class="at" data-autofit data-q="after" data-slot="after" data-max-font="54" data-min-font="{{ S.after.min_font_px }}" data-max-height="150">{{ slots.after }}</p>
+</section>
+{% endblock %}

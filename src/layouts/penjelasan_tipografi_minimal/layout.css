@@ -1,0 +1,5 @@
+.L-penjelasan_tipografi_minimal .stack{position:absolute;left:64px;right:64px;top:190px;bottom:210px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-penjelasan_tipografi_minimal .top{width:952px;display:flex;flex-direction:column;gap:26px;align-items:flex-start}
+.L-penjelasan_tipografi_minimal .fit-title{width:952px}
+.L-penjelasan_tipografi_minimal .bot{align-self:flex-end;width:580px;display:flex;flex-direction:column;gap:28px}
+.L-penjelasan_tipografi_minimal .rule{height:3px;width:100%;background:var(--fg);opacity:.4}

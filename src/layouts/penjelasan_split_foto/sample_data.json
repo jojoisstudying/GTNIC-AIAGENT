@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Operator Terlatih", "body": "Pelatihan singkat setiap bulan menjaga kemampuan tim tetap tajam."}, "params": {}, "emphasis": ["Terlatih"], "photo": "senyum"},
+  "typical": {"slots": {"kicker": "Dari lantai produksi", "title": "Kenapa Briefing Pagi Penting", "body": "Sepuluh menit di awal shift menyamakan target dan mengingatkan titik rawan hari itu."},
+              "params": {"photo_side": "left"}, "emphasis": ["Penting"], "photo": "menunjuk"},
+  "max": {"slots": {"kicker": "Pelajaran dari lapangan", "title": "Catatan Kecil Mencegah Masalah Besar Berulang", "body": "Tulis temuan sekecil apa pun di buku shift. Pola yang berulang baru terlihat ketika semua catatan terkumpul dan dibaca bersama tim."},
+          "params": {}, "emphasis": ["Mencegah"], "photo": "pegang_laptop"}
+}

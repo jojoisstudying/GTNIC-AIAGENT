@@ -1,0 +1,26 @@
+{
+  "slots": {
+    "statement": {
+      "type": "text",
+      "required": true,
+      "min_chars": 20,
+      "max_chars": 110,
+      "min_font_px": 72,
+      "emphasis": true
+    },
+    "context": {
+      "type": "text",
+      "required": false,
+      "max_chars": 130,
+      "min_font_px": 30,
+      "emphasis": true
+    },
+    "kicker": {
+      "type": "text",
+      "required": false,
+      "max_chars": 24,
+      "min_font_px": 28
+    }
+  },
+  "params": {}
+}

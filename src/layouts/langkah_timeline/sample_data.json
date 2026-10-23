@@ -1,0 +1,48 @@
+{
+  "min": {
+    "slots": {
+      "title": "Alur Pelaporan Insiden",
+      "steps": [
+        "Hentikan pekerjaan",
+        "Laporkan ke supervisor",
+        "Isi formulir insiden"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Insiden"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Alur singkat",
+      "title": "Dari Temuan Sampai Perbaikan",
+      "steps": [
+        "Temukan dan foto masalahnya",
+        "Lapor lewat grup shift",
+        "Tim teknis memeriksa",
+        "Perbaikan dan catat hasilnya"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Perbaikan"
+    ]
+  },
+  "max": {
+    "slots": {
+      "kicker": "Panduan alur",
+      "title": "Alur Lengkap Pelaporan Insiden Kerja",
+      "steps": [
+        "Hentikan pekerjaan dan amankan area sekitar",
+        "Laporkan ke supervisor yang sedang bertugas",
+        "Isi formulir insiden sebelum shift berakhir",
+        "Ikuti tindak lanjut dari tim keselamatan"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Insiden"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Mau checklist lengkapnya?", "keyword": "MAU"}, "params": {"lines": "2"}, "emphasis": ["checklist"]},
+  "typical": {"slots": {"title": "Mau Template Logbook Mesin Gratis?", "keyword": "LOGBOOK", "subtitle": "Kami kirim lewat DM, langsung ke kamu.", "secondary": "Simpan biar tidak lupa"},
+              "params": {"bubble_side": "right"}, "emphasis": ["Gratis"]},
+  "max": {"slots": {"title": "Industri Mana Lagi yang Harus Kita Bahas?", "keyword": "INDUSTRI", "verb": "Komen", "subtitle": "Tulis jawabanmu di kolom komentar, kami baca semuanya.", "secondary": "Simpan postingan ini untuk nanti"},
+          "params": {}, "emphasis": ["Bahas"]}
+}

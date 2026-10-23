@@ -1,0 +1,18 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline, body_text, ghost_word, photo_window %}
+{% block text_back %}{% if not photo_url %}{{ ghost_word(first_word(slots.title)) }}{% endif %}{% endblock %}
+{% block photo %}
+{% if photo_url %}
+<div class="plate side-{{ params.photo_side }}"></div>
+{{ photo_window(photo_url, "side-" ~ params.photo_side ~ (" flip" if params.photo_side == "left" else "")) }}
+<div class="scrim"></div>
+{% endif %}
+{% endblock %}
+{% block text_front %}
+{% set w = 470 if photo_url else 900 %}
+<div class="col {{ "with-photo" if photo_url else "solo" }} side-{{ params.photo_side }}">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 84 if photo_url else 112, S.title.min_font_px, 400, w) }}
+  {{ body_text(slots.body, emphasis, 38 if photo_url else 44, S.body.min_font_px, 360, w, "body") }}
+</div>
+{% endblock %}

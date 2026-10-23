@@ -1,0 +1,12 @@
+{
+  "slots": {
+    "title":       {"type": "text", "required": true, "min_chars": 8, "max_chars": 48, "min_font_px": 60, "emphasis": true},
+    "left_label":  {"type": "text", "required": true, "min_chars": 2, "max_chars": 16, "min_font_px": 28},
+    "right_label": {"type": "text", "required": true, "min_chars": 2, "max_chars": 16, "min_font_px": 28},
+    "left_items":  {"type": "list", "required": true, "min_items": 2, "max_items": 4, "item_max_chars": 44, "min_font_px": 30, "emphasis": true},
+    "right_items": {"type": "list", "required": true, "min_items": 2, "max_items": 4, "item_max_chars": 44, "min_font_px": 30, "emphasis": true}
+  },
+  "params": {
+    "accent_side": {"enum": ["right", "left"], "default": "right"}
+  }
+}

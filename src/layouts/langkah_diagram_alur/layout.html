@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline %}
+{% set n = slots.steps|length %}
+{% set nw = 620 %}
+{% set top = 470 %}
+{% set nh = 128 if n == 4 else 160 %}
+{% set gap = ((680 - n * nh) / (n - 1))|int %}
+{% block text_front %}
+<div class="head">{{ headline(slots.title, emphasis, 88, S.title.min_font_px, 230, 952) }}</div>
+<svg class="flow" viewBox="0 0 1080 1350" width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" style="stroke:var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+  {% for i in range(n - 1) %}
+    {% set xa = (64 if i % 2 == 0 else 396) + nw // 2 %}
+    {% set xb = (64 if (i + 1) % 2 == 0 else 396) + nw // 2 %}
+    {% set ya = top + i * (nh + gap) + nh %}
+    {% set yb = top + (i + 1) * (nh + gap) - 4 %}
+    <path d="M{{ xa }} {{ ya }} C {{ xa }} {{ ya + 36 }}, {{ xb }} {{ yb - 36 }}, {{ xb }} {{ yb }}" fill="none" style="stroke:var(--accent)" stroke-width="5" stroke-linecap="round" marker-end="url(#ah)"/>
+  {% endfor %}
+</svg>
+{% for it in slots.steps %}
+  {% set last = loop.last %}
+  <div class="node{{ ' last' if last else '' }}" style="left:{{ 64 if loop.index0 % 2 == 0 else 396 }}px;top:{{ top + loop.index0 * (nh + gap) }}px;height:{{ nh }}px">
+    <span class="nb">{{ loop.index }}</span>
+    <p class="ns" data-autofit data-fit-group="fl" data-q="step{{ loop.index }}" data-slot="step{{ loop.index }}" data-max-font="38" data-min-font="{{ S.steps.min_font_px }}" data-max-height="{{ nh - 24 }}">{{ it if last else it|emph(emphasis) }}</p>
+  </div>
+{% endfor %}
+{% endblock %}

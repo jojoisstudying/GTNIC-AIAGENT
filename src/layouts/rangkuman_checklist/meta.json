@@ -1,0 +1,15 @@
+{
+  "id": "rangkuman_checklist",
+  "role": "rangkuman",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "list:checklist",
+    "deco:card"
+  ],
+  "reference_notes": "Kartu daftar centang: tiap poin diberi kotak aksen bercentang. Cocok sebagai rangkuman sebelum slide penutup.",
+  "batch": 4
+}

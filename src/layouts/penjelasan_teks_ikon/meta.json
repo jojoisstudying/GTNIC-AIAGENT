@@ -1,0 +1,15 @@
+{
+  "id": "penjelasan_teks_ikon",
+  "role": "penjelasan",
+  "status": "approved",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "deco:watermark_icon",
+    "icon:badge"
+  ],
+  "reference_notes": "Satu ide per halaman: ikon di badge miring, judul besar, penjelasan; ikon raksasa outline sebagai watermark yang keluar frame.",
+  "batch": 1
+}

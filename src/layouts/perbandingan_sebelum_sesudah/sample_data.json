@@ -1,0 +1,39 @@
+{
+  "min": {
+    "slots": {
+      "title": "Kebiasaan Lama vs Baru",
+      "before": "Catatan di kertas lepas yang sering hilang",
+      "after": "Logbook terpusat yang bisa dibuka seluruh tim"
+    },
+    "params": {},
+    "emphasis": [
+      "Baru"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Kebiasaan Lama vs Kebiasaan Aman",
+      "before_label": "Dulu",
+      "after_label": "Sekarang",
+      "before": "Briefing seadanya, sering terlewat saat shift padat",
+      "after": "Briefing sepuluh menit di awal setiap shift"
+    },
+    "params": {},
+    "emphasis": [
+      "Aman"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Dari Cek Seadanya Menjadi Cek Terjadwal",
+      "before_label": "Sebelum",
+      "after_label": "Sesudah",
+      "before": "Cek mesin hanya saat sempat, tanpa jadwal jelas dan tanpa catatan yang bisa dilacak",
+      "after": "Cek mesin terjadwal tiap shift, hasilnya dicatat di logbook yang bisa dilihat semua tim"
+    },
+    "params": {},
+    "emphasis": [
+      "Terjadwal"
+    ]
+  }
+}

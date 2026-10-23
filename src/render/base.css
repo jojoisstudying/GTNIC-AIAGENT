@@ -1,0 +1,17 @@
+/* Dasar kanvas 1080x1350. Warna datang dari variabel :root (token brand + style pack). */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden;background:#000}
+body{font-synthesis:none}
+.canvas{position:relative;width:1080px;height:1350px;overflow:hidden;background:var(--bg);color:var(--fg);
+  font-family:var(--f-body),'DejaVu Sans',sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+.layer{position:absolute;inset:0;pointer-events:none}
+
+/* Chrome: selalu paling atas */
+.chrome-h{position:absolute;left:64px;right:64px;top:50px;height:58px;display:flex;align-items:center;justify-content:space-between}
+.brandmark{display:inline-flex;align-items:center;gap:14px;font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:.01em;white-space:nowrap}
+.brandmark .sq{width:22px;height:22px;border-radius:5px;background:var(--accent);display:block}
+.brandmark img{height:50px;display:block}
+.pagectr{font-family:var(--f-medium);font-weight:500;font-size:24px;padding:8px 20px;border:2px solid var(--line);border-radius:999px;color:var(--muted);white-space:nowrap}
+.chrome-f{position:absolute;left:64px;right:64px;bottom:50px;height:50px;display:flex;align-items:center;justify-content:space-between}
+.foot-lines{display:flex;gap:28px;font-family:var(--f-medium);font-weight:500;font-size:24px;color:var(--muted);white-space:nowrap}
+.swipe{display:inline-flex;align-items:center;gap:10px;font-family:var(--f-display);font-weight:700;font-size:24px;padding:9px 22px 10px;border:2px solid var(--fg);border-radius:999px;white-space:nowrap}

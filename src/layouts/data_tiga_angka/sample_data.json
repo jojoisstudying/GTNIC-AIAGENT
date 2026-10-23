@@ -1,0 +1,52 @@
+{
+  "min": {
+    "slots": {
+      "title": "Hasil Program Pelatihan",
+      "value_1": "72%",
+      "label_1": "Merasa lebih percaya diri",
+      "value_2": "3x",
+      "label_2": "Latihan dalam sebulan",
+      "value_3": "95%",
+      "label_3": "Hadir sampai selesai",
+      "source": "Survei internal peserta"
+    },
+    "params": {},
+    "emphasis": [
+      "Pelatihan"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Angka Penting Dari Program Magang",
+      "value_1": "120",
+      "label_1": "Peserta magang tahun lalu",
+      "value_2": "68%",
+      "label_2": "Diterima bekerja setelah magang",
+      "value_3": "4,6",
+      "label_3": "Skor kepuasan dari lima",
+      "source": "Laporan program magang"
+    },
+    "params": {
+      "accent_row": "2"
+    },
+    "emphasis": []
+  },
+  "max": {
+    "slots": {
+      "title": "Ringkasan Capaian Program Pelatihan Tahunan",
+      "value_1": "1.250",
+      "label_1": "Jam pelatihan yang dilaksanakan",
+      "value_2": "98%",
+      "label_2": "Operator lulus uji kompetensi",
+      "value_3": "−35%",
+      "label_3": "Penurunan insiden ringan di lapangan",
+      "source": "Laporan keselamatan tahunan perusahaan"
+    },
+    "params": {
+      "accent_row": "none"
+    },
+    "emphasis": [
+      "Capaian"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "min": {
+    "slots": {
+      "myth": "Mesin baru tidak perlu dirawat",
+      "fact": "Perawatan sejak awal memperpanjang umur mesin."
+    },
+    "params": {},
+    "emphasis": []
+  },
+  "typical": {
+    "slots": {
+      "myth": "Perawatan hanya menambah biaya produksi",
+      "fact": "Perawatan terjadwal menekan biaya perbaikan besar dan menjaga produksi tetap lancar."
+    },
+    "params": {},
+    "emphasis": []
+  },
+  "max": {
+    "slots": {
+      "myth": "Perawatan hanya menambah biaya dan tidak berpengaruh pada produksi harian",
+      "fact": "Perawatan terjadwal justru menekan biaya perbaikan besar dan menjaga produksi tetap berjalan tanpa gangguan."
+    },
+    "params": {},
+    "emphasis": []
+  }
+}

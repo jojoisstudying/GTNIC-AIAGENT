@@ -1,0 +1,7 @@
+.L-data_angka_besar .stack{position:absolute;left:64px;width:952px;display:flex;flex-direction:column;gap:26px;align-items:flex-start}
+.L-data_angka_besar .stack.pos-middle{top:50%;transform:translateY(-50%)}
+.L-data_angka_besar .stack.pos-top{top:200px}
+.L-data_angka_besar .stack.pos-bottom{bottom:200px}
+.L-data_angka_besar .label{width:900px;font-family:var(--f-display);font-weight:700;line-height:1.15;color:var(--fg)}
+.L-data_angka_besar .divider{height:14px;border-radius:7px}
+.L-data_angka_besar .source{font-family:var(--f-medium);font-weight:500;font-size:26px;color:var(--muted);white-space:nowrap}

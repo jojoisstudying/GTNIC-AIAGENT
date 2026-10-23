@@ -1,0 +1,7 @@
+.L-cover_foto_judul_bawah{--ph:1060px;--scrim-h:900px}
+.L-cover_foto_judul_bawah .glow{position:absolute;left:50%;top:230px;width:1000px;height:1000px;margin-left:-500px;
+  background:radial-gradient(circle,var(--accent-a),transparent 62%)}
+.L-cover_foto_judul_bawah .side-center{left:50%;transform:translateX(-50%)}
+.L-cover_foto_judul_bawah .side-left{left:-70px}
+.L-cover_foto_judul_bawah .side-right{right:-70px}
+.L-cover_foto_judul_bawah .stack{position:absolute;left:64px;right:64px;bottom:190px;display:flex;flex-direction:column;gap:26px;align-items:flex-start}

@@ -1,0 +1,15 @@
+{
+  "id": "perbandingan_dua_kolom",
+  "role": "perbandingan",
+  "status": "approved",
+  "density": "high",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "compare:two_panels",
+    "marks:check_x"
+  ],
+  "reference_notes": "Salah vs benar / sebelum vs sesudah. Sisi 'benar' memakai panel aksen penuh, sisi lain netral; penanda x dan centang.",
+  "batch": 1
+}

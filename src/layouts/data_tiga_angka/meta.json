@@ -1,0 +1,15 @@
+{
+  "id": "data_tiga_angka",
+  "role": "data",
+  "status": "draft",
+  "density": "high",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "data:triple",
+    "rows:divided"
+  ],
+  "reference_notes": "Tiga angka bersumber dalam tiga baris; satu baris boleh disorot aksen. Angka HANYA dari riset bersumber.",
+  "batch": 3
+}

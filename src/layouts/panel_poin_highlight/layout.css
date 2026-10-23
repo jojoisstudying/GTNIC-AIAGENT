@@ -1,0 +1,8 @@
+.L-panel_poin_highlight .head{position:absolute;left:64px;top:190px;height:290px;width:952px;display:flex;flex-direction:column;justify-content:flex-end;gap:22px;align-items:flex-start}
+.L-panel_poin_highlight .grid{position:absolute;left:64px;width:952px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+.L-panel_poin_highlight .card{border-radius:36px;padding:28px 32px;display:flex;align-items:center;background:var(--fill-soft);border:2px solid var(--line);color:var(--fg);overflow:hidden}
+.L-panel_poin_highlight .card.feat{grid-column:1/-1;background:var(--accent);border-color:transparent;color:var(--accent-fg)}
+.L-panel_poin_highlight .grid.f .card:last-child:nth-child(even){grid-column:1/-1}
+.L-panel_poin_highlight .grid.nof .card:last-child:nth-child(odd){grid-column:1/-1}
+.L-panel_poin_highlight .pt{width:100%;font-family:var(--f-medium);font-weight:500;line-height:1.25}
+.L-panel_poin_highlight .card.feat .pt{font-family:var(--f-display);font-weight:700}

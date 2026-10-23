@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Aman Kerja"}, "params": {"lines": "2"}, "emphasis": ["Aman"], "photo": "senyum"},
+  "typical": {"slots": {"kicker": "Tips lapangan", "title": "Cuci Tangan yang Benar", "subtitle": "Dua puluh detik yang menjaga timmu tetap sehat."},
+              "params": {"photo_side": "right"}, "emphasis": ["Benar"], "photo": "menunjuk"},
+  "max": {"slots": {"kicker": "Panduan keselamatan harian", "title": "Tiga Kebiasaan Mencegah Cedera", "subtitle": "Mulai dari hal kecil sebelum mesin dinyalakan di lantai."},
+          "params": {"lines": "4", "photo_side": "left"}, "emphasis": ["Cedera"], "photo": "pegang_laptop"}
+}

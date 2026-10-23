@@ -1,0 +1,14 @@
+{
+  "_petunjuk": "Salin isi kunci 'verified_facts' ini ke config/brand.json. Hanya isi fakta yang BENAR dan bisa kamu pertanggungjawabkan; planner akan memakainya apa adanya. Batas: value 1-6 karakter, label 8-44, source 3-64; kutipan 30-150 karakter, name 3-32, source maks 48.",
+  "verified_facts": {
+    "stats": [
+      {"value": "120", "label": "Peserta magang tahun lalu", "source": "Data HRD 2025"},
+      {"value": "68%", "label": "Diterima bekerja setelah magang", "source": "Data HRD 2025"},
+      {"value": "4,6", "label": "Skor kepuasan peserta dari lima", "source": "Survei internal 2025"}
+    ],
+    "quotes": [
+      {"text": "Pendampingan dari tim senior membuat saya cepat memahami alur kerja di pabrik.",
+       "name": "Dimas Pratama", "source": "Operator shift pagi"}
+    ]
+  }
+}

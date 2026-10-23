@@ -1,0 +1,8 @@
+.L-perbandingan_mitos_fakta .myth{position:absolute;left:64px;top:200px;width:952px;height:260px;border-radius:40px;padding:30px 38px;display:flex;flex-direction:column;gap:18px;align-items:flex-start;background:var(--fill-soft);border:2px dashed var(--line);color:var(--fg);overflow:hidden}
+.L-perbandingan_mitos_fakta .fact{position:absolute;left:64px;top:510px;width:952px;height:640px;border-radius:56px;padding:50px 56px;display:flex;flex-direction:column;gap:30px;align-items:flex-start;background:var(--accent);color:var(--accent-fg);overflow:hidden}
+.L-perbandingan_mitos_fakta .chip{display:inline-flex;align-items:center;gap:10px;font-family:var(--f-display);font-weight:700;font-size:28px;line-height:1.1;padding:8px 22px 10px 16px;border-radius:999px;white-space:nowrap}
+.L-perbandingan_mitos_fakta .chip svg{width:30px;height:30px}
+.L-perbandingan_mitos_fakta .myth .chip{background:var(--fg);color:var(--bg)}
+.L-perbandingan_mitos_fakta .fact .chip{background:var(--accent-fg);color:var(--accent)}
+.L-perbandingan_mitos_fakta .mt{width:870px;font-family:var(--f-medium);font-weight:500;line-height:1.22;text-decoration:line-through;text-decoration-thickness:4px;text-decoration-color:currentColor}
+.L-perbandingan_mitos_fakta .ft{width:844px;font-family:var(--f-display);font-weight:700;line-height:1.14;letter-spacing:-.01em}

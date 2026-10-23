@@ -1,0 +1,22 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 44,
+      "min_font_px": 60,
+      "emphasis": true
+    },
+    "steps": {
+      "type": "list",
+      "required": true,
+      "min_items": 3,
+      "max_items": 4,
+      "item_max_chars": 36,
+      "min_font_px": 30,
+      "emphasis": true
+    }
+  },
+  "params": {}
+}

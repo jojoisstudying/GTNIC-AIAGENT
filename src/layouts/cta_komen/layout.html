@@ -1,0 +1,18 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import fit_title, body_text, mark %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block text_front %}
+<div class="stack">
+  {{ fit_title(lines, 210, S.title.min_font_px, 400) }}
+  <div class="mid">
+    <div class="bubble tail-{{ params.bubble_side }}">
+      <span class="verb" data-q="verb" data-slot="verb" data-min-font="{{ S.verb.min_font_px }}">{{ slots.verb or "Komen" }}</span>
+      <span class="key" data-autofit data-q="key" data-slot="keyword" data-max-font="150" data-min-font="{{ S.keyword.min_font_px }}" data-max-height="170">{{ slots.keyword|upper }}</span>
+    </div>
+    {{ body_text(slots.subtitle, emphasis, 38, S.subtitle.min_font_px, 120, 860) }}
+  </div>
+  {% if slots.secondary %}
+  <div class="secondary">{{ mark("bookmark", 40) }}<span data-q="secondary" data-slot="secondary" data-min-font="{{ S.secondary.min_font_px }}">{{ slots.secondary }}</span></div>
+  {% endif %}
+</div>
+{% endblock %}

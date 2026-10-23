@@ -1,0 +1,34 @@
+{
+  "min": {
+    "slots": {
+      "quote": "Pelatihan singkat ini membuat saya lebih percaya diri di lantai produksi.",
+      "name": "Rina Putri"
+    },
+    "params": {},
+    "emphasis": [
+      "percaya diri"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "quote": "Pendampingan dari tim senior membuat saya cepat memahami alur kerja di pabrik.",
+      "name": "Dimas Pratama",
+      "source": "Operator shift pagi"
+    },
+    "params": {},
+    "emphasis": [
+      "cepat memahami"
+    ]
+  },
+  "max": {
+    "slots": {
+      "quote": "Awalnya saya ragu, tapi pendampingan sabar dari tim senior membuat saya cepat memahami alur kerja dan merasa diterima di sini.",
+      "name": "Siti Rahmawati",
+      "source": "Peserta magang angkatan terakhir"
+    },
+    "params": {},
+    "emphasis": [
+      "diterima"
+    ]
+  }
+}

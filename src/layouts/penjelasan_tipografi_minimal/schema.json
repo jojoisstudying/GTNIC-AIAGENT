@@ -1,0 +1,35 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 60,
+      "min_font_px": 72,
+      "emphasis": true
+    },
+    "body": {
+      "type": "text",
+      "required": true,
+      "min_chars": 20,
+      "max_chars": 200,
+      "min_font_px": 30,
+      "emphasis": true
+    },
+    "kicker": {
+      "type": "text",
+      "required": false,
+      "max_chars": 24,
+      "min_font_px": 28
+    }
+  },
+  "params": {
+    "lines": {
+      "enum": [
+        "2",
+        "3"
+      ],
+      "default": "2"
+    }
+  }
+}

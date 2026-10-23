@@ -1,0 +1,12 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline, body_text %}
+{% block photo %}
+<div class="frame">{% if photo_url %}<img class="cutout" src="{{ photo_url }}" alt="">{% endif %}</div>
+{% endblock %}
+{% block text_front %}
+<div class="cap">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 80, S.title.min_font_px, 160, 952) }}
+  {{ body_text(slots.caption, emphasis, 36, S.caption.min_font_px, 120, 900, "caption") }}
+</div>
+{% endblock %}

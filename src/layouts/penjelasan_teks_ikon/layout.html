@@ -1,0 +1,11 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline, body_text, divider, icon %}
+{% block text_back %}<div class="wm" data-bleed>{{ icon(slots.icon, 940, 0.5) }}</div>{% endblock %}
+{% block text_front %}
+<div class="stack pos-{{ params.pos }}">
+  <div class="badge {{ params.icon_style }}">{{ icon(slots.icon, 124 if params.icon_style == "badge" else 150, 2) }}</div>
+  {{ headline(slots.title, emphasis, 104, S.title.min_font_px, 300, 900) }}
+  {{ divider(96) }}
+  {{ body_text(slots.body, emphasis, 42, S.body.min_font_px, 300, 820, "body") }}
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+groq==1.7.0
+tavily-python==0.8.5
+requests==2.34.2
+python-dotenv==1.2.4
+Pillow==12.3.0
+rembg[cpu]==2.0.85
+cloudinary==1.46.3
+SQLAlchemy==2.0.55
+alembic==1.20.0
+tenacity==9.2.1
+pydantic==2.14.1
+pytest==9.1.1
+playwright==1.56.0
+jinja2==3.1.6
+numpy>=2.0

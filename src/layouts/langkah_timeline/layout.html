@@ -1,0 +1,20 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline %}
+{% set n = slots.steps|length %}
+{% set top = 500 %}
+{% set row_h = ((1150 - top) / n)|int %}
+{% block text_front %}
+<div class="head">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 92, S.title.min_font_px, 230, 952) }}
+</div>
+<div class="rail" style="top:{{ top + (row_h / 2)|int }}px;height:{{ row_h * (n - 1) }}px"></div>
+<ol class="steps" style="top:{{ top }}px">
+{% for it in slots.steps %}
+  <li class="step" style="height:{{ row_h }}px">
+    <span class="node{{ ' on' if loop.first else '' }}">{{ loop.index }}</span>
+    <p class="st" data-autofit data-fit-group="tl" data-q="step{{ loop.index }}" data-slot="step{{ loop.index }}" data-max-font="42" data-min-font="{{ S.steps.min_font_px }}" data-max-height="{{ row_h - 24 }}">{{ it|emph(emphasis) }}</p>
+  </li>
+{% endfor %}
+</ol>
+{% endblock %}

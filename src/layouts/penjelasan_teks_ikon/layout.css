@@ -1,0 +1,8 @@
+.L-penjelasan_teks_ikon .wm{position:absolute;right:-250px;top:150px;color:var(--ghost)}
+.L-penjelasan_teks_ikon .stack{position:absolute;left:64px;width:900px;display:flex;flex-direction:column;gap:34px;align-items:flex-start}
+.L-penjelasan_teks_ikon .stack.pos-top{top:210px}
+.L-penjelasan_teks_ikon .stack.pos-bottom{bottom:200px}
+.L-penjelasan_teks_ikon .stack.pos-middle{top:50%;transform:translateY(-50%)}
+.L-penjelasan_teks_ikon .badge{width:200px;height:200px;display:grid;place-items:center;transform:rotate(-6deg)}
+.L-penjelasan_teks_ikon .badge.badge{border-radius:56px;background:var(--accent);color:var(--accent-fg)}
+.L-penjelasan_teks_ikon .badge.plain{color:var(--fg);width:auto;height:auto;transform:none}

@@ -1,0 +1,39 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 44,
+      "min_font_px": 60,
+      "emphasis": true
+    },
+    "before": {
+      "type": "text",
+      "required": true,
+      "min_chars": 12,
+      "max_chars": 90,
+      "min_font_px": 32
+    },
+    "after": {
+      "type": "text",
+      "required": true,
+      "min_chars": 12,
+      "max_chars": 90,
+      "min_font_px": 32
+    },
+    "before_label": {
+      "type": "text",
+      "required": false,
+      "max_chars": 14,
+      "min_font_px": 26
+    },
+    "after_label": {
+      "type": "text",
+      "required": false,
+      "max_chars": 14,
+      "min_font_px": 26
+    }
+  },
+  "params": {}
+}

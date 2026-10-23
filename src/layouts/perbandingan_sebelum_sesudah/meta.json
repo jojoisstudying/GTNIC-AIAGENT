@@ -1,0 +1,15 @@
+{
+  "id": "perbandingan_sebelum_sesudah",
+  "role": "perbandingan",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "cmp:stacked",
+    "flow:arrow"
+  ],
+  "reference_notes": "Dua pita bertumpuk dengan panah turun: keadaan lama (redup, dicoret) lalu keadaan baru (aksen). Satu kalimat per sisi.",
+  "batch": 4
+}

@@ -1,0 +1,11 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import fit_title, body_text, divider %}
+{% block text_front %}
+<div class="stack pos-{{ params.pos }}">
+  <p class="label" data-autofit data-q="label" data-slot="label" data-max-font="46" data-min-font="{{ S.label.min_font_px }}" data-max-height="130">{{ slots.label }}</p>
+  {{ fit_title([slots.value|emph(emphasis)], 460, S.value.min_font_px, 440, "value") }}
+  {{ divider(952) }}
+  {{ body_text(slots.context, emphasis, 40, S.context.min_font_px, 190, 900, "context") }}
+  <p class="source" data-q="source" data-slot="source" data-min-font="{{ S.source.min_font_px }}">Sumber: {{ slots.source }}</p>
+</div>
+{% endblock %}

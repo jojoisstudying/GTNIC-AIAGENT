@@ -1,0 +1,15 @@
+{
+  "id": "langkah_timeline",
+  "role": "langkah",
+  "status": "draft",
+  "density": "high",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "list:rail",
+    "flow:vertical"
+  ],
+  "reference_notes": "Rel vertikal bersambung dengan titik bernomor; titik pertama terisi aksen sebagai awal alur.",
+  "batch": 3
+}

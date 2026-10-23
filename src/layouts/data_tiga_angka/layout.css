@@ -1,0 +1,7 @@
+.L-data_tiga_angka .head{position:absolute;left:64px;top:190px;height:250px;width:952px;display:flex;flex-direction:column;justify-content:flex-end}
+.L-data_tiga_angka .rows{position:absolute;left:64px;width:952px}
+.L-data_tiga_angka .row{display:flex;align-items:center;gap:32px;border-top:2px solid var(--line)}
+.L-data_tiga_angka .val{flex:none;width:420px;font-family:var(--f-display);font-weight:700;line-height:1;letter-spacing:-.02em;white-space:nowrap;color:var(--fg);padding:.04em .1em .08em;border-radius:.12em}
+.L-data_tiga_angka .val.acc{background:var(--accent);color:var(--accent-fg)}
+.L-data_tiga_angka .lab{width:480px;font-family:var(--f-medium);font-weight:500;line-height:1.22;color:var(--fg)}
+.L-data_tiga_angka .source{position:absolute;left:64px;font-family:var(--f-medium);font-weight:500;font-size:26px;color:var(--muted);white-space:nowrap}

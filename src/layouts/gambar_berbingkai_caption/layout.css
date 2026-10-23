@@ -1,0 +1,4 @@
+.L-gambar_berbingkai_caption .frame{position:absolute;left:64px;top:190px;width:952px;height:556px;border-radius:44px;overflow:hidden;transform:rotate(-1.2deg);
+  background:linear-gradient(155deg,var(--accent-a),var(--fill-soft) 70%);border:2px solid var(--line)}
+.L-gambar_berbingkai_caption .frame .cutout{top:28px;bottom:auto;left:50%;transform:translateX(-50%);--ph:790px}
+.L-gambar_berbingkai_caption .cap{position:absolute;left:64px;top:792px;bottom:200px;width:952px;display:flex;flex-direction:column;justify-content:flex-start;gap:20px;align-items:flex-start}

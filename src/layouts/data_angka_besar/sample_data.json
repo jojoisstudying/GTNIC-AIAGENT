@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"label": "Cedera kerja turun", "value": "40%", "source": "Data internal 2025"}, "params": {}, "emphasis": []},
+  "typical": {"slots": {"label": "Waktu henti mesin berkurang setelah perawatan terjadwal", "value": "35%", "context": "Perusahaan yang disiplin merawat mesin melaporkan produksi lebih stabil sepanjang tahun.", "source": "Studi industri manufaktur 2025"},
+              "params": {}, "emphasis": ["%"]},
+  "max": {"slots": {"label": "Penghematan biaya perbaikan dari perawatan rutin per tahun", "value": "Rp1,2 M", "context": "Angka ini muncul dari kerusakan besar yang berhasil dicegah karena terdeteksi lebih awal oleh tim.", "source": "Laporan perawatan pabrik, Kementerian"},
+          "params": {"pos": "top"}, "emphasis": []}
+}

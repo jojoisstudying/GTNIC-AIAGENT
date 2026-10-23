@@ -1,0 +1,72 @@
+{
+  "company": "Industri Dummy",
+  "industry": "manufaktur komponen industri (GANTI sesuai perusahaan demo-mu)",
+  "description": "Perusahaan manufaktur yang ingin tampil profesional dan dekat dengan calon karyawan serta mitra bisnis (GANTI)",
+  "audience": "calon karyawan usia 20-35, mitra B2B, dan komunitas industri di Indonesia",
+  "tone": "profesional, hangat, ringkas, tidak lebay, Bahasa Indonesia",
+  "content_pillars": [
+    "tips produktivitas kerja",
+    "budaya perusahaan",
+    "keselamatan kerja",
+    "info lowongan"
+  ],
+  "rules": [
+    "Jangan klaim angka atau fakta tanpa sumber",
+    "Tidak boleh ada konten SARA, politik, atau provokatif",
+    "Hashtag maksimal 8, relevan dengan industri",
+    "Jangan menyebut nama karyawan tanpa persetujuan"
+  ],
+  "available_poses": [
+    "senyum",
+    "mikir",
+    "menunjuk",
+    "pegang_laptop",
+    "pegang_tablet",
+    "tangan_disilang"
+  ],
+  "colors": {
+    "primary": "#0B2A5B",
+    "secondary": "#EAF1FF",
+    "accent": "#FFB400",
+    "text_on_primary": "#FFFFFF"
+  },
+  "font_path": "assets/fonts/YourFont-Bold.ttf",
+  "logo_path": "assets/logo.png",
+  "tokens": {
+    "bg": "#0B2A5B",
+    "light_bg": "#EAF1FF",
+    "fg": "#FFFFFF",
+    "accent": "#FFB400"
+  },
+  "fonts": {
+    "display": {
+      "family": "Poppins",
+      "file": "Poppins-Bold.ttf",
+      "weight": 700
+    },
+    "body": {
+      "family": "Poppins",
+      "file": "Poppins-Regular.ttf",
+      "weight": 400
+    },
+    "medium": {
+      "family": "Poppins",
+      "file": "Poppins-Medium.ttf",
+      "weight": 500
+    }
+  },
+  "chrome": {
+    "brand_text": "Industri Dummy",
+    "header": true,
+    "page_counter": true,
+    "footer": {
+      "show": true,
+      "lines": [
+        "@industridummy",
+        "0812-0000-0000"
+      ],
+      "qr_path": null
+    },
+    "swipe_hint": true
+  }
+}

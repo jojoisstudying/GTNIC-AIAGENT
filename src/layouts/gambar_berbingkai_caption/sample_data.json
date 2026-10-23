@@ -1,0 +1,37 @@
+{
+  "min": {
+    "slots": {
+      "title": "Tim Lapangan Kami",
+      "caption": "Operator berpengalaman siap membantu setiap hari."
+    },
+    "params": {},
+    "emphasis": [
+      "Lapangan"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Kenalan dulu",
+      "title": "Operator Lini Produksi",
+      "caption": "Setiap pagi tim kami memeriksa mesin bersama sebelum produksi dimulai."
+    },
+    "params": {},
+    "emphasis": [
+      "Produksi"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Dari lantai produksi",
+      "title": "Belajar Langsung dari Para Operator Senior",
+      "caption": "Pengalaman bertahun-tahun di lantai produksi dibagikan lewat sesi pendampingan yang santai dan praktis."
+    },
+    "params": {},
+    "emphasis": [
+      "Senior"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

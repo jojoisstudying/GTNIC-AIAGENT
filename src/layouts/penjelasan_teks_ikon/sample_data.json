@@ -1,0 +1,7 @@
+{
+  "min": {"slots": {"title": "Pakai APD Lengkap", "body": "Helm, sarung tangan, dan sepatu safety wajib dipakai.", "icon": "shield"}, "params": {}, "emphasis": ["APD"]},
+  "typical": {"slots": {"title": "Cek Mesin Sebelum Dinyalakan", "body": "Lihat kabel, pengaman, dan area sekitar mesin. Lima menit pemeriksaan bisa mencegah kecelakaan besar.", "icon": "alert"},
+              "params": {"icon_style": "plain"}, "emphasis": ["Sebelum"]},
+  "max": {"slots": {"title": "Perawatan Rutin Menekan Biaya Perbaikan Besar", "body": "Pelumasan terjadwal, pembersihan filter, dan pencatatan jam kerja mesin membuat kerusakan terdeteksi lebih awal. Tim jadi lebih tenang dan produksi tidak sering terhenti mendadak.", "icon": "clock"},
+          "params": {"pos": "top"}, "emphasis": ["Rutin", "Biaya"]}
+}

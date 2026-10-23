@@ -1,0 +1,15 @@
+{
+  "id": "cover_judul_raksasa",
+  "role": "cover",
+  "status": "approved",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "typo:fit_width_lines",
+    "deco:ghost_word"
+  ],
+  "reference_notes": "Teknik: judul blok rata-lebar dengan skala antar-baris ekstrem; kata hantu (outline) sebagai kedalaman. Tanpa foto.",
+  "batch": 1
+}

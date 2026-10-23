@@ -1,0 +1,51 @@
+{
+  "min": {
+    "slots": {
+      "title": "Tiga Kebiasaan Aman",
+      "points": [
+        "Pakai APD lengkap",
+        "Cek area sebelum kerja",
+        "Laporkan bahaya sekecil apa pun"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Aman"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Kebiasaan harian",
+      "title": "Empat Kebiasaan Penjaga Keselamatan",
+      "points": [
+        "Briefing singkat sebelum shift",
+        "Pakai APD sesuai area kerja",
+        "Periksa mesin sebelum dinyalakan",
+        "Rapikan area sebelum pulang"
+      ]
+    },
+    "params": {
+      "featured": "none"
+    },
+    "emphasis": [
+      "Keselamatan"
+    ]
+  },
+  "max": {
+    "slots": {
+      "kicker": "Daftar utama",
+      "title": "Lima Kebiasaan Penjaga Keselamatan Kerja",
+      "points": [
+        "Mulai shift dengan briefing singkat sepuluh menit",
+        "Pakai alat pelindung diri sesuai area kerja",
+        "Periksa mesin sebelum dinyalakan setiap hari",
+        "Laporkan kondisi tidak aman segera ke supervisor",
+        "Rapikan area kerja sebelum meninggalkan lokasi"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Keselamatan"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "konteks_pernyataan_besar",
+  "role": "konteks",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "typo:statement",
+    "deco:side_bar"
+  ],
+  "reference_notes": "Satu pernyataan besar dengan garis aksen di sisi kiri; konteks kecil di dasar. Cocok sebagai napas di tengah carousel.",
+  "batch": 4
+}

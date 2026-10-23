@@ -1,0 +1,12 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import mark %}
+{% block text_front %}
+<section class="myth">
+  <span class="chip">{{ mark("x", 30, 3) }}MITOS</span>
+  <p class="mt" data-autofit data-q="myth" data-slot="myth" data-max-font="42" data-min-font="{{ S.myth.min_font_px }}" data-max-height="150">{{ slots.myth }}</p>
+</section>
+<section class="fact">
+  <span class="chip">{{ mark("check", 34, 3) }}FAKTA</span>
+  <p class="ft" data-autofit data-q="fact" data-slot="fact" data-max-font="76" data-min-font="{{ S.fact.min_font_px }}" data-max-height="420">{{ slots.fact }}</p>
+</section>
+{% endblock %}

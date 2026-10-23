@@ -1,0 +1,49 @@
+{
+  "min": {
+    "slots": {
+      "title": "Ringkasan Cek Harian",
+      "points": [
+        "Alat lengkap",
+        "Mesin diperiksa",
+        "Hasil dicatat"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Harian"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Ringkasan Persiapan Sebelum Shift",
+      "points": [
+        "Pakai APD lengkap",
+        "Periksa kondisi mesin",
+        "Baca catatan shift lalu",
+        "Rapikan area kerja"
+      ],
+      "note": "Simpan sebagai pengingat"
+    },
+    "params": {},
+    "emphasis": [
+      "Persiapan"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Ringkasan Lengkap Keselamatan Kerja",
+      "points": [
+        "Briefing singkat sebelum shift dimulai",
+        "Pakai alat pelindung diri sesuai area",
+        "Periksa mesin sebelum dinyalakan",
+        "Laporkan kondisi tidak aman segera",
+        "Rapikan area sebelum meninggalkan lokasi"
+      ],
+      "note": "Simpan dan bagikan ke tim"
+    },
+    "params": {},
+    "emphasis": [
+      "Keselamatan"
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "min": {
+    "slots": {
+      "title": "Alur Kerja Harian",
+      "steps": [
+        "Cek alat",
+        "Nyalakan mesin",
+        "Catat hasilnya"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Alur"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Alur Kerja Sebelum Produksi",
+      "steps": [
+        "Siapkan alat dan area",
+        "Periksa kondisi mesin",
+        "Jalankan sesuai prosedur",
+        "Catat hasil di logbook"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Produksi"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Alur Lengkap Persiapan Produksi Harian",
+      "steps": [
+        "Siapkan alat dan bersihkan area",
+        "Periksa semua indikator mesin",
+        "Jalankan mesin sesuai prosedur",
+        "Catat hasil di logbook shift"
+      ]
+    },
+    "params": {},
+    "emphasis": [
+      "Persiapan"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "penjelasan_tipografi_minimal",
+  "role": "penjelasan",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "typo:fit_width_lines",
+    "typo:minimal"
+  ],
+  "reference_notes": "Murni tipografi: judul memenuhi lebar di atas, penjelasan kecil di kolom kanan bawah. Tanpa kartu atau ikon.",
+  "batch": 4
+}

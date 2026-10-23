@@ -1,0 +1,23 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline %}
+{% set n = slots.points|length %}
+{% set top = 520 %}
+{% set H = 1150 - top %}
+{% set gap = 22 %}
+{% set feat_on = params.featured == "first" %}
+{% set rows = (1 + ((n - 1 + 1) // 2)) if feat_on else ((n + 1) // 2) %}
+{% set card_h = ((H - gap * (rows - 1)) / rows)|int %}
+{% block text_front %}
+<div class="head">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 88, S.title.min_font_px, 230, 952) }}
+</div>
+<div class="grid {{ 'f' if feat_on else 'nof' }}" style="top:{{ top }}px;height:{{ H }}px;grid-template-rows:repeat({{ rows }},{{ card_h }}px)">
+{% for it in slots.points %}
+  {% set feat = loop.first and feat_on %}
+  <div class="card{{ ' feat' if feat else '' }}">
+    <p class="pt" data-autofit {% if not feat %}data-fit-group="pp" {% endif %}data-q="pt{{ loop.index }}" data-slot="pt{{ loop.index }}" data-max-font="{{ 48 if feat else 40 }}" data-min-font="{{ S.points.min_font_px }}" data-max-height="{{ card_h - 56 }}">{{ it if feat else it|emph(emphasis) }}</p>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

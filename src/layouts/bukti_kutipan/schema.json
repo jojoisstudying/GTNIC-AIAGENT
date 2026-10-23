@@ -1,0 +1,26 @@
+{
+  "slots": {
+    "quote": {
+      "type": "text",
+      "required": true,
+      "min_chars": 30,
+      "max_chars": 150,
+      "min_font_px": 48,
+      "emphasis": true
+    },
+    "name": {
+      "type": "text",
+      "required": true,
+      "min_chars": 3,
+      "max_chars": 32,
+      "min_font_px": 30
+    },
+    "source": {
+      "type": "text",
+      "required": false,
+      "max_chars": 48,
+      "min_font_px": 26
+    }
+  },
+  "params": {}
+}

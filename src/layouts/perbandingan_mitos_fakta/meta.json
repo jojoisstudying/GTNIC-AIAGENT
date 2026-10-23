@@ -1,0 +1,15 @@
+{
+  "id": "perbandingan_mitos_fakta",
+  "role": "perbandingan",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "cmp:myth_fact",
+    "deco:strike"
+  ],
+  "reference_notes": "Asimetris: mitos kecil dan dicoret di atas, fakta besar di kartu aksen. Hierarki jelas, satu pesan per slide.",
+  "batch": 4
+}

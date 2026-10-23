@@ -1,0 +1,15 @@
+{
+  "id": "langkah_nomor_besar",
+  "role": "langkah",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "number:giant",
+    "typo:stack_left"
+  ],
+  "reference_notes": "Satu langkah = satu slide: angka raksasa di atas, judul dan penjelasan di bawah. Tanpa nomor, kata hantu mengisi kedalaman.",
+  "batch": 3
+}

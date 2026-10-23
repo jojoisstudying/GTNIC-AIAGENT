@@ -1,0 +1,20 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline %}
+{% set n = slots.points|length %}
+{% set list_top = 560 %}
+{% set list_h = 1185 - list_top %}
+{% set row_h = (list_h / n)|int %}
+{% block text_front %}
+<div class="head">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 96, S.title.min_font_px, 270, 952) }}
+</div>
+<ol class="rows" style="top:{{ list_top }}px;height:{{ list_h }}px">
+{% for it in slots.points %}
+  <li class="row" style="height:{{ row_h }}px">
+    <span class="num {{ params.numeral }}"{% if params.numeral == "badge" %} data-q="num{{ loop.index }}" data-min-font="30"{% endif %}>{{ loop.index }}</span>
+    <p class="item" data-autofit data-q="item{{ loop.index }}" data-slot="item{{ loop.index }}" data-max-font="46" data-min-font="{{ S.points.min_font_px }}" data-max-height="{{ row_h - 24 }}">{{ it|emph(emphasis) }}</p>
+  </li>
+{% endfor %}
+</ol>
+{% endblock %}

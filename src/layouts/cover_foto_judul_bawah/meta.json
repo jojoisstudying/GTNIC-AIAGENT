@@ -1,0 +1,20 @@
+{
+  "id": "cover_foto_judul_bawah",
+  "role": "cover",
+  "status": "approved",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "menunjuk",
+    "pegang_laptop",
+    "tangan_disilang"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "photo:hero",
+    "typo:fit_width_lines"
+  ],
+  "reference_notes": "Teknik: operator besar di tengah, judul besar menimpa area badan dengan scrim agar terbaca; glow aksen di belakang subjek.",
+  "batch": 1
+}

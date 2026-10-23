@@ -1,0 +1,13 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline, body_text, divider, ghost_word %}
+{% block text_back %}
+{% if slots.number %}<div class="bignum {{ params.numeral }}">{{ slots.number }}</div>{% else %}{{ ghost_word(first_word(slots.title)) }}{% endif %}
+{% endblock %}
+{% block text_front %}
+<div class="col">
+  {{ kicker(slots.kicker, S.kicker.min_font_px) }}
+  {{ headline(slots.title, emphasis, 92, S.title.min_font_px, 220, 952) }}
+  {{ divider(120) }}
+  {{ body_text(slots.body, emphasis, 40, S.body.min_font_px, 230, 880, "body") }}
+</div>
+{% endblock %}

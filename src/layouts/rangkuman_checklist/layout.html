@@ -1,0 +1,16 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import headline, mark %}
+{% set n = slots.points|length %}
+{% set row_h = ((590 - 24) / n)|int %}
+{% block text_front %}
+<div class="head">{{ headline(slots.title, emphasis, 88, S.title.min_font_px, 230, 952) }}</div>
+<ul class="card" style="top:500px;height:590px">
+{% for it in slots.points %}
+  <li class="row" style="height:{{ row_h }}px">
+    <span class="box">{{ mark("check", 36, 3.4) }}</span>
+    <p class="it" data-autofit data-fit-group="ck" data-q="it{{ loop.index }}" data-slot="it{{ loop.index }}" data-max-font="40" data-min-font="{{ S.points.min_font_px }}" data-max-height="{{ row_h - 20 }}">{{ it|emph(emphasis) }}</p>
+  </li>
+{% endfor %}
+</ul>
+{% if slots.note %}<div class="note">{{ mark("bookmark", 30, 2.8) }}<span data-q="note" data-slot="note" data-min-font="{{ S.note.min_font_px }}">{{ slots.note }}</span></div>{% endif %}
+{% endblock %}

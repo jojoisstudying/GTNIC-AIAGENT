@@ -1,0 +1,12 @@
+.L-penjelasan_split_foto{--ph:880px;--pw:540px;--scrim-h:280px}
+.L-penjelasan_split_foto .col{position:absolute;top:190px;bottom:230px;display:flex;flex-direction:column;justify-content:center;gap:30px;align-items:flex-start}
+.L-penjelasan_split_foto .col.solo{left:64px;width:900px}
+.L-penjelasan_split_foto .col.with-photo.side-right{left:64px;width:470px}
+.L-penjelasan_split_foto .col.with-photo.side-left{left:546px;width:470px}
+.L-penjelasan_split_foto .plate{position:absolute;bottom:130px;width:500px;height:760px;border-radius:48px;
+  background:linear-gradient(160deg,var(--accent-a),transparent 72%);border:2px solid var(--line)}
+.L-penjelasan_split_foto .plate.side-right{right:40px}
+.L-penjelasan_split_foto .plate.side-left{left:40px}
+.L-penjelasan_split_foto .pwin.side-right{right:0}
+.L-penjelasan_split_foto .pwin.side-left{left:0}
+.L-penjelasan_split_foto .ghost{left:-34px;top:170px}

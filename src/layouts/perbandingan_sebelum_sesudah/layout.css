@@ -1,0 +1,11 @@
+.L-perbandingan_sebelum_sesudah .head{position:absolute;left:64px;top:190px;height:250px;width:952px;display:flex;flex-direction:column;justify-content:flex-end}
+.L-perbandingan_sebelum_sesudah .band{position:absolute;left:64px;width:952px;height:300px;border-radius:44px;padding:34px 40px;display:flex;flex-direction:column;gap:18px;align-items:flex-start;overflow:hidden}
+.L-perbandingan_sebelum_sesudah .b1{top:460px;background:var(--fill-soft);border:2px solid var(--line);color:var(--fg)}
+.L-perbandingan_sebelum_sesudah .b2{top:860px;background:var(--accent);color:var(--accent-fg)}
+.L-perbandingan_sebelum_sesudah .chip{font-family:var(--f-display);font-weight:700;font-size:28px;line-height:1.1;padding:8px 22px 10px;border-radius:999px;white-space:nowrap}
+.L-perbandingan_sebelum_sesudah .b1 .chip{background:var(--fg);color:var(--bg)}
+.L-perbandingan_sebelum_sesudah .b2 .chip{background:var(--accent-fg);color:var(--accent)}
+.L-perbandingan_sebelum_sesudah .bt{width:872px;font-family:var(--f-medium);font-weight:500;line-height:1.22;text-decoration:line-through;text-decoration-thickness:4px;text-decoration-color:currentColor}
+.L-perbandingan_sebelum_sesudah .at{width:872px;font-family:var(--f-display);font-weight:700;line-height:1.15}
+.L-perbandingan_sebelum_sesudah .arr{position:absolute;left:498px;top:768px;width:84px;height:84px;border-radius:50%;background:var(--fg);color:var(--bg);display:grid;place-items:center;z-index:2}
+.L-perbandingan_sebelum_sesudah .arr svg{width:44px;height:44px}

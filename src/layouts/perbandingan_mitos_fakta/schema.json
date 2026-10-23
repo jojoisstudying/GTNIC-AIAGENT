@@ -1,0 +1,19 @@
+{
+  "slots": {
+    "myth": {
+      "type": "text",
+      "required": true,
+      "min_chars": 12,
+      "max_chars": 90,
+      "min_font_px": 30
+    },
+    "fact": {
+      "type": "text",
+      "required": true,
+      "min_chars": 12,
+      "max_chars": 130,
+      "min_font_px": 44
+    }
+  },
+  "params": {}
+}
