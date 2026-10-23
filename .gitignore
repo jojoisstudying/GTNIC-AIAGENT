@@ -3,8 +3,10 @@ output/
 data/
 __pycache__/
 .venv/
+
 gallery/
 .pytest_cache/
+__pycache__/
 *.pdf
 *.diff
 *.db

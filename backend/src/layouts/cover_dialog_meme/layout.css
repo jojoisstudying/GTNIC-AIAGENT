@@ -1,0 +1,15 @@
+.L-cover_dialog_meme{--ph:760px;--scrim-h:260px}
+.L-cover_dialog_meme .glow{position:absolute;top:620px;width:900px;height:900px;background:radial-gradient(circle,var(--accent-a),transparent 62%)}
+.L-cover_dialog_meme .glow.right{left:380px}
+.L-cover_dialog_meme .glow.left{left:-200px}
+.L-cover_dialog_meme .side-right{right:-40px}
+.L-cover_dialog_meme .side-left{left:-40px}
+.L-cover_dialog_meme .kick{position:absolute;left:64px;top:158px}
+.L-cover_dialog_meme .bubble{position:absolute;left:64px;top:208px;width:952px;padding:46px 56px;border-radius:56px;background:var(--fg);color:var(--bg)}
+.L-cover_dialog_meme .bubble .headline{color:var(--bg)}
+.L-cover_dialog_meme .bubble::after{content:"";position:absolute;bottom:-76px;width:96px;height:96px;background:var(--fg);clip-path:polygon(0 0,100% 0,65% 100%)}
+.L-cover_dialog_meme .bubble.right::after{right:250px}
+.L-cover_dialog_meme .bubble.left::after{left:250px;transform:scaleX(-1)}
+.L-cover_dialog_meme .reply{position:absolute;bottom:200px;padding:28px 34px;border-radius:40px;background:var(--accent);color:var(--accent-fg);font-family:var(--f-display);font-weight:700;line-height:1.15}
+.L-cover_dialog_meme .reply.right{left:64px}
+.L-cover_dialog_meme .reply.left{right:64px}

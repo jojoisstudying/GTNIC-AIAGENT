@@ -1,0 +1,24 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 36,
+      "min_font_px": 56
+    },
+    "kicker": {
+      "type": "text",
+      "required": false,
+      "max_chars": 28,
+      "min_font_px": 28
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 60,
+      "min_font_px": 30
+    }
+  },
+  "params": {}
+}

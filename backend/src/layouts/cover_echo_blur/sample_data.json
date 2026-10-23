@@ -1,0 +1,38 @@
+{
+  "min": {
+    "slots": {
+      "title": "Cek Mesin Setiap Pagi"
+    },
+    "params": {},
+    "emphasis": [
+      "Mesin"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Kebiasaan",
+      "title": "Disiplin Kecil Hasil Besar",
+      "subtitle": "Langkah sederhana yang dilakukan rutin."
+    },
+    "params": {
+      "lines": "3"
+    },
+    "emphasis": [
+      "Disiplin"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Perawatan",
+      "title": "Rawat Mesin Sebelum Rusak",
+      "subtitle": "Perawatan terjadwal menjaga produksi tetap tenang."
+    },
+    "params": {},
+    "emphasis": [
+      "Rawat"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

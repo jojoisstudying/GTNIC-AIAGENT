@@ -1,0 +1,20 @@
+{
+  "id": "cover_pertanyaan_wajah_crop",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "mikir",
+    "senyum",
+    "menunjuk"
+  ],
+  "photo_crop": "face",
+  "tags": [
+    "effect:face_crop",
+    "effect:giant_glyph",
+    "tone:question"
+  ],
+  "reference_notes": "Wajah operator di-crop besar di satu sisi, tanda tanya raksasa beraksen di belakangnya, pertanyaan di dasar. Cocok untuk hook berupa pertanyaan.",
+  "batch": 2
+}

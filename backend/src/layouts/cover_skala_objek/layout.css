@@ -1,0 +1,5 @@
+.L-cover_skala_objek{--ph:620px;--scrim-h:260px}
+.L-cover_skala_objek .obj{position:absolute;left:290px;top:640px;color:var(--accent);opacity:.34}
+.L-cover_skala_objek .obj svg{width:780px;height:780px}
+.L-cover_skala_objek .side-left{left:30px}
+.L-cover_skala_objek .head{position:absolute;left:64px;top:158px;width:900px;display:flex;flex-direction:column;gap:20px;align-items:flex-start}

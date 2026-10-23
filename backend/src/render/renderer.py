@@ -47,19 +47,34 @@ def _lum(rgb: np.ndarray) -> np.ndarray:
     return lin @ np.array([0.2126, 0.7152, 0.0722])
 
 
-def _measure_contrast(png: bytes, report: list[dict]) -> None:
-    """Isi item['contrast_min'] = persentil-5 kontras terburuk di antara run teks."""
+OCCLUSION_DIFF = 12      # selisih piksel (0-255) yang dianggap 'tertutup foto'
+
+
+def _measure_contrast(png: bytes, report: list[dict], png_nophoto: bytes | None = None) -> None:
+    """Isi item['contrast_min'] = persentil-5 kontras terburuk di antara run teks.
+    Elemen data-behind (teks di BELAKANG subjek): kontras diukur terhadap latar TANPA foto (bagian yang tertutup
+    memang disengaja), dan item['occlusion'] = bagian terbesar kotak baris yang tertutup foto (0-1)."""
     arr = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+    arr_np = np.asarray(Image.open(io.BytesIO(png_nophoto)).convert("RGB")) if png_nophoto else None
     for item in report:
         worst = None
+        behind = bool(item.get("behind")) and arr_np is not None
+        src = arr_np if behind else arr
+        occl = 0.0
         for run in item.get("runs", []):
+            if behind:
+                rx0, rx1 = max(0, int(run["x"])), min(CANVAS_W, int(run["x"] + run["w"]))
+                ry0, ry1 = max(0, int(run["y"])), min(CANVAS_H, int(run["y"] + run["h"]))
+                if rx1 - rx0 >= 2 and ry1 - ry0 >= 1:
+                    d = np.abs(arr[ry0:ry1, rx0:rx1].astype(int) - arr_np[ry0:ry1, rx0:rx1].astype(int)).max(axis=2)
+                    occl = max(occl, float((d > OCCLUSION_DIFF).mean()))
             band_y0 = run["y"] + run["h"] * 0.3
             band_y1 = run["y"] + run["h"] * 0.7
             x0, x1 = max(0, int(run["x"])), min(CANVAS_W, int(run["x"] + run["w"]))
             y0, y1 = max(0, int(band_y0)), min(CANVAS_H, int(band_y1))
             if x1 - x0 < 2 or y1 - y0 < 1:
                 continue
-            px = arr[y0:y1:2, x0:x1:3].reshape(-1, 3).astype(float)
+            px = src[y0:y1:2, x0:x1:3].reshape(-1, 3).astype(float)
             r, g, b, a = _parse_color(run["color"])
             if a < 1.0:
                 med = np.median(px, axis=0)
@@ -70,6 +85,8 @@ def _measure_contrast(png: bytes, report: list[dict]) -> None:
             val = float(np.percentile(ratios, 5))
             worst = val if worst is None else min(worst, val)
         item["contrast_min"] = worst
+        if behind:
+            item["occlusion"] = occl
         item.pop("runs", None)
 
 
@@ -123,11 +140,15 @@ class Renderer:
                 page.screenshot(path=str(out), type="jpeg", quality=quality)
                 page.add_style_tag(content=_HIDE_GLYPHS)
                 png = page.screenshot(type="png")
+                png_nophoto = None
+                if any(item.get("behind") for item in report):
+                    page.add_style_tag(content=".l-photo{visibility:hidden!important}")
+                    png_nophoto = page.screenshot(type="png")
         except Exception as exc:  # noqa: BLE001
             raise RenderError(f"render gagal untuk {out.name}: {exc}") from exc
         finally:
             context.close()
-        _measure_contrast(png, report)
+        _measure_contrast(png, report, png_nophoto)
         return RenderResult(path=out, report=report, blocked=blocked, ms=int((time.perf_counter() - t0) * 1000))
 
 

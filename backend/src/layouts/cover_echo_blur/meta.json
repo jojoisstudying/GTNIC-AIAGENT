@@ -1,0 +1,21 @@
+{
+  "id": "cover_echo_blur",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "menunjuk",
+    "pegang_laptop",
+    "pegang_tablet"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "effect:echo_blur",
+    "typo:fit_width_lines",
+    "photo:hero"
+  ],
+  "reference_notes": "Judul besar di depan dengan dua salinan garis tepi kabur (echo) melayang ke bawah di belakang subjek, memberi kesan gerak.",
+  "batch": 2
+}

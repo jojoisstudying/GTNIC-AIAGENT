@@ -1,0 +1,10 @@
+.L-cover_echo_blur{--ph:880px;--scrim-h:420px}
+.L-cover_echo_blur .glow{position:absolute;left:50%;top:420px;width:980px;height:980px;margin-left:-490px;background:radial-gradient(circle,var(--accent-a),transparent 62%)}
+.L-cover_echo_blur .side-center{left:50%;transform:translateX(-50%)}
+.L-cover_echo_blur .kick{position:absolute;left:64px;top:158px}
+.L-cover_echo_blur .tt{position:absolute;left:64px;top:215px;width:952px}
+.L-cover_echo_blur .ec{position:absolute;left:64px;width:952px}
+.L-cover_echo_blur .e1{top:312px;opacity:.75;filter:blur(2.5px)}
+.L-cover_echo_blur .e2{top:410px;opacity:.42;filter:blur(7px)}
+.L-cover_echo_blur .echo{color:transparent;-webkit-text-stroke:5px var(--accent)}
+.L-cover_echo_blur .sub{position:absolute;left:64px;bottom:190px}

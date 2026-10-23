@@ -1,0 +1,9 @@
+.L-cover_pertanyaan_wajah_crop{--scrim-h:760px}
+.L-cover_pertanyaan_wajah_crop .qm{position:absolute;top:120px;font-family:var(--f-display);font-weight:700;font-size:980px;line-height:.8;color:var(--accent)}
+.L-cover_pertanyaan_wajah_crop .qm.right{left:-20px}
+.L-cover_pertanyaan_wajah_crop .qm.left{right:-20px}
+.L-cover_pertanyaan_wajah_crop .cutout.face{width:1250px;height:auto;top:70px;bottom:auto}
+.L-cover_pertanyaan_wajah_crop .cutout.face.side-right{right:-250px}
+.L-cover_pertanyaan_wajah_crop .cutout.face.side-left{left:-250px}
+.L-cover_pertanyaan_wajah_crop .kick{position:absolute;left:64px;top:158px}
+.L-cover_pertanyaan_wajah_crop .stack{position:absolute;left:64px;right:64px;bottom:190px;display:flex;flex-direction:column;gap:24px;align-items:flex-start}

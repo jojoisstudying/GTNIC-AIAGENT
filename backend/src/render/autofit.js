@@ -79,6 +79,7 @@
         slot: el.dataset.slot || null, kind,
         min_font: +el.dataset.minFont || 0,
         bleed: el.hasAttribute('data-bleed'),
+        behind: el.hasAttribute('data-behind'),
       };
       if (el.hasAttribute('data-fitlines')) {
         const lines = Array.from(el.querySelectorAll('.fl'));

@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, headline, body_text, cutout %}
+{% block photo %}<div class="glow"></div>{{ cutout(photo_url, "side-center") }}<div class="scrim"></div>{% endblock %}
+{% block text_front %}
+<div class="kick">{{ kicker(slots.kicker, S.kicker.min_font_px) }}</div>
+<div class="band"><div class="inner">{{ headline(slots.title, [], 84, S.title.min_font_px, 205, 920) }}</div></div>
+<div class="tape"></div>
+<div class="sub">{{ body_text(slots.subtitle, [], 36, S.subtitle.min_font_px, 110, 860) }}</div>
+{% endblock %}

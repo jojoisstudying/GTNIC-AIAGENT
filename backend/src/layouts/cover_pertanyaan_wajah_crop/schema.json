@@ -1,0 +1,33 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 48,
+      "min_font_px": 64,
+      "emphasis": true
+    },
+    "kicker": {
+      "type": "text",
+      "required": false,
+      "max_chars": 28,
+      "min_font_px": 28
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 60,
+      "min_font_px": 30
+    }
+  },
+  "params": {
+    "photo_side": {
+      "enum": [
+        "right",
+        "left"
+      ],
+      "default": "right"
+    }
+  }
+}

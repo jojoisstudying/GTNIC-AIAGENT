@@ -3,8 +3,8 @@
 {% if text %}<div class="kicker" data-q="kicker" data-slot="kicker" data-min-font="{{ min_font }}">{{ text }}</div>{% endif %}
 {%- endmacro %}
 
-{% macro fit_title(lines, max_font=300, min_font=72, max_height=620, slot="title") -%}
-<h1 class="fit-title" data-fitlines data-q="{{ slot }}" data-slot="{{ slot }}" data-max-font="{{ max_font }}" data-min-font="{{ min_font }}" data-max-height="{{ max_height }}">
+{% macro fit_title(lines, max_font=300, min_font=72, max_height=620, slot="title", behind=false) -%}
+<h1 class="fit-title" data-fitlines{{ " data-behind" if behind else "" }} data-q="{{ slot }}" data-slot="{{ slot }}" data-max-font="{{ max_font }}" data-min-font="{{ min_font }}" data-max-height="{{ max_height }}">
 {% for line in lines %}<span class="fl">{{ line }}</span>{% endfor %}
 </h1>
 {%- endmacro %}

@@ -1,0 +1,8 @@
+.L-cover_teks_belakang_subjek{--ph:905px;--scrim-h:480px}
+.L-cover_teks_belakang_subjek .glow{position:absolute;left:50%;top:430px;width:980px;height:980px;margin-left:-490px;background:radial-gradient(circle,var(--accent-a),transparent 62%)}
+.L-cover_teks_belakang_subjek .tb{position:absolute;left:64px;top:215px;width:952px}
+.L-cover_teks_belakang_subjek .side-center{left:50%;transform:translateX(-50%)}
+.L-cover_teks_belakang_subjek .side-right{right:-110px}
+.L-cover_teks_belakang_subjek .side-left{left:-110px}
+.L-cover_teks_belakang_subjek .kick{position:absolute;left:64px;top:158px}
+.L-cover_teks_belakang_subjek .sub{position:absolute;left:64px;bottom:190px}

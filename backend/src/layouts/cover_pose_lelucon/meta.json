@@ -1,0 +1,21 @@
+{
+  "id": "cover_pose_lelucon",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "tangan_disilang",
+    "mikir",
+    "senyum",
+    "menunjuk"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "effect:label_across_chest",
+    "deco:tilt_band",
+    "tone:humor"
+  ],
+  "reference_notes": "Pose ekspresif dengan pita aksen miring yang menyilang dada memuat judul pendek bernada jenaka.",
+  "batch": 2
+}

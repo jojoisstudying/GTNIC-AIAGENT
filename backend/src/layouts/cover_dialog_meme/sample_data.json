@@ -1,0 +1,32 @@
+{
+  "min": {
+    "slots": {
+      "title": "Katanya Mesin Baru Tak Perlu Dirawat?"
+    },
+    "params": {},
+    "emphasis": [],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Mitos lapangan",
+      "title": "Katanya Mesin Baru Tidak Perlu Dirawat?",
+      "reply": "Serius?"
+    },
+    "params": {
+      "photo_side": "left"
+    },
+    "emphasis": [],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Pernah dengar?",
+      "title": "Katanya Alat Pelindung Diri Cuma Formalitas Saja?",
+      "reply": "Coba pikir lagi."
+    },
+    "params": {},
+    "emphasis": [],
+    "photo": "pegang_laptop"
+  }
+}

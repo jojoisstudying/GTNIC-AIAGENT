@@ -1,0 +1,22 @@
+{
+  "id": "cover_teks_belakang_subjek",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "menunjuk",
+    "pegang_laptop",
+    "pegang_tablet",
+    "tangan_disilang"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "effect:text_behind_subject",
+    "typo:fit_width_lines",
+    "photo:hero"
+  ],
+  "reference_notes": "Judul raksasa lebar penuh di lapisan BELAKANG subjek: bagian atas kepala/bahu operator menutupi dasar baris terakhir sehingga tercipta kedalaman. Gerbang QC menjaga huruf tidak tertutup lebih dari 35%.",
+  "batch": 2
+}

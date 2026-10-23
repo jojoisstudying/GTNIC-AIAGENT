@@ -1,0 +1,30 @@
+{
+  "min": {
+    "slots": {
+      "title": "Santai, Tapi Pakai APD"
+    },
+    "params": {},
+    "emphasis": [],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Serius sedikit",
+      "title": "Bukan Gaya, Ini Perlengkapan",
+      "subtitle": "APD lengkap, pulang selamat."
+    },
+    "params": {},
+    "emphasis": [],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Dengar dulu",
+      "title": "Helm Itu Bukan Aksesori Tambahan",
+      "subtitle": "Pakai setiap saat di area produksi."
+    },
+    "params": {},
+    "emphasis": [],
+    "photo": "pegang_laptop"
+  }
+}

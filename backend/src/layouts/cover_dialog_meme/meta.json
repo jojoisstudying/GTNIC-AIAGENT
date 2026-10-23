@@ -1,0 +1,20 @@
+{
+  "id": "cover_dialog_meme",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "mikir",
+    "menunjuk",
+    "tangan_disilang"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "effect:speech_bubble",
+    "tone:humor"
+  ],
+  "reference_notes": "Balon dialog putih besar dengan ekor menuju operator; judul berupa ucapan/pertanyaan. Balasan singkat opsional dalam balon aksen.",
+  "batch": 2
+}

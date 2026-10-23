@@ -1,0 +1,41 @@
+{
+  "min": {
+    "slots": {
+      "title": "Cek Alat Dulu"
+    },
+    "params": {},
+    "emphasis": [
+      "Alat"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Tips lapangan",
+      "title": "Kerja Aman Dimulai Dari Sini",
+      "subtitle": "Lima menit persiapan yang menjaga seluruh shift."
+    },
+    "params": {
+      "photo_side": "right"
+    },
+    "emphasis": [
+      "Aman"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Pengingat harian",
+      "title": "Rapi Itu Keselamatan Utama",
+      "subtitle": "Area kerja tertata membuat bahaya lebih mudah terlihat."
+    },
+    "params": {
+      "lines": "3",
+      "photo_side": "left"
+    },
+    "emphasis": [
+      "Utama"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

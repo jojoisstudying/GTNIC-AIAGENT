@@ -1,0 +1,20 @@
+{
+  "id": "cover_skala_objek",
+  "role": "cover",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "required",
+  "pose_tags": [
+    "menunjuk",
+    "pegang_tablet",
+    "senyum",
+    "pegang_laptop"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "effect:giant_object",
+    "scale:tiny_figure"
+  ],
+  "reference_notes": "Objek/ikon topik berukuran raksasa sebagai latar, operator kecil berdiri di sebelahnya: kontras skala yang langsung menyampaikan 'masalah besar'.",
+  "batch": 2
+}

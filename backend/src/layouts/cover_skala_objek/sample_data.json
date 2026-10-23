@@ -1,0 +1,39 @@
+{
+  "min": {
+    "slots": {
+      "title": "Masalah Kecil Jadi Besar",
+      "object": "alert"
+    },
+    "params": {},
+    "emphasis": [
+      "Besar"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Waspada",
+      "title": "Telat Cek, Biaya Membengkak",
+      "object": "clock",
+      "subtitle": "Jadwalkan pemeriksaan sebelum terlambat."
+    },
+    "params": {},
+    "emphasis": [
+      "Membengkak"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Jangan diabaikan",
+      "title": "Sekecil Apa Pun, Tetap Lapor",
+      "object": "shield",
+      "subtitle": "Laporan dini mencegah kejadian yang lebih besar."
+    },
+    "params": {},
+    "emphasis": [
+      "Lapor"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

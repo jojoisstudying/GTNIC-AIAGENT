@@ -10,6 +10,7 @@ HEADER_BOTTOM = 150      # konten tidak boleh masuk zona header chrome
 FOOTER_TOP = 1215        # ...atau zona footer chrome
 LARGE_TEXT_PX = 48
 MIN_CONTRAST, MIN_CONTRAST_LARGE = 4.5, 3.0
+MAX_OCCLUSION = 0.35     # teks di belakang subjek: maksimal bagian baris yang boleh tertutup foto
 MIN_FILL = 0.28          # peringatan kalau konten terlalu sedikit memenuhi area aman
 
 
@@ -42,6 +43,9 @@ def evaluate(report: list[dict]) -> list[Issue]:
             need = MIN_CONTRAST_LARGE if it["font_px"] >= LARGE_TEXT_PX else MIN_CONTRAST
             if c < need:
                 issues.append(Issue("kontras_rendah", "error", eid, f"kontras {c:.1f}:1 < {need}:1"))
+        occ = it.get("occlusion")
+        if occ is not None and occ > MAX_OCCLUSION:
+            issues.append(Issue("teks_tertutup_subjek", "error", eid, f"{occ:.0%} baris tertutup subjek (maks {MAX_OCCLUSION:.0%})"))
         if it["bleed"]:
             continue
         out = (b["x"] < -TOL or b["y"] < -TOL or b["x"] + b["w"] > CANVAS_W + TOL or b["y"] + b["h"] > CANVAS_H + TOL)

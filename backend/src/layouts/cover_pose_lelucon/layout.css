@@ -1,0 +1,9 @@
+.L-cover_pose_lelucon{--ph:1180px;--scrim-h:360px}
+.L-cover_pose_lelucon .glow{position:absolute;left:50%;top:220px;width:980px;height:980px;margin-left:-490px;background:radial-gradient(circle,var(--accent-a),transparent 62%)}
+.L-cover_pose_lelucon .side-center{left:50%;transform:translateX(-50%)}
+.L-cover_pose_lelucon .kick{position:absolute;left:64px;top:158px}
+.L-cover_pose_lelucon .band{position:absolute;left:-60px;width:1200px;top:700px;height:240px;background:var(--accent);transform:rotate(-5deg);display:flex;align-items:center;justify-content:center}
+.L-cover_pose_lelucon .inner{width:920px}
+.L-cover_pose_lelucon .band .headline{color:var(--accent-fg);text-align:center}
+.L-cover_pose_lelucon .tape{position:absolute;left:-60px;width:1200px;top:956px;height:30px;background:var(--fg);transform:rotate(-5deg)}
+.L-cover_pose_lelucon .sub{position:absolute;left:64px;bottom:150px}

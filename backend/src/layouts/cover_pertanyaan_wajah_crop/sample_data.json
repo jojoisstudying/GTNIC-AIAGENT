@@ -1,0 +1,38 @@
+{
+  "min": {
+    "slots": {
+      "title": "Sudah Cek Alatmu Hari Ini?"
+    },
+    "params": {},
+    "emphasis": [
+      "Alatmu"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Coba jawab jujur",
+      "title": "Apa Yang Sering Terlewat Saat Mulai Shift?",
+      "subtitle": "Satu kebiasaan kecil bisa mengubah segalanya."
+    },
+    "params": {
+      "photo_side": "left"
+    },
+    "emphasis": [
+      "Terlewat"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Pertanyaan hari ini",
+      "title": "Apa Yang Sering Kamu Lewatkan Sebelum Mulai?",
+      "subtitle": "Jawab di komentar, kami baca semuanya."
+    },
+    "params": {},
+    "emphasis": [
+      "Lewatkan"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

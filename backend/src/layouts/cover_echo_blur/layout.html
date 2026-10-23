@@ -1,0 +1,19 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import kicker, fit_title, body_text, cutout %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% macro echo(cls) -%}
+<h1 class="fit-title echo {{ cls }}" aria-hidden="true" data-fitlines data-max-font="230" data-min-font="{{ S.title.min_font_px }}" data-max-height="270">
+{% for line in lines %}<span class="fl">{{ line|striptags }}</span>{% endfor %}
+</h1>
+{%- endmacro %}
+{% block text_back %}
+<div class="glow"></div>
+<div class="ec e2">{{ echo("e2") }}</div>
+<div class="ec e1">{{ echo("e1") }}</div>
+{% endblock %}
+{% block photo %}{{ cutout(photo_url, "side-center") }}<div class="scrim"></div>{% endblock %}
+{% block text_front %}
+<div class="kick">{{ kicker(slots.kicker, S.kicker.min_font_px) }}</div>
+<div class="tt">{{ fit_title(lines, 230, S.title.min_font_px, 270) }}</div>
+<div class="sub">{{ body_text(slots.subtitle, emphasis, 36, S.subtitle.min_font_px, 110, 860) }}</div>
+{% endblock %}
