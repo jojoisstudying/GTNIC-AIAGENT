@@ -2,14 +2,14 @@
 
 Platform otomasi konten media sosial berbasis **Autonomous Multi-Agent Architecture** untuk industri dan enterprise di Indonesia dengan jaminan konten profesional ("No-AI-Slop").
 
-## 📁 Struktur Repositori
+## Struktur Repositori
 
 Proyek ini menggunakan struktur monorepo terpisah antara Backend AI Agent dan Frontend Web:
 
 - **`backend/`**: Pipeline AI Agent (Research, Planning, Composition, Guardrail Quality Control, Direct Publishing, Event Cost Tracking).
 - **`frontend/`**: Antarmuka web pengguna / Live Dashboard interaktif.
 
-## 🚀 Setup Cepat
+##  Setup Cepat
 
 ### Backend
 Lihat panduan lengkap di [backend/SPEC.md](backend/SPEC.md).
