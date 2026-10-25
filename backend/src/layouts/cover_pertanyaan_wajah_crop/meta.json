@@ -1,7 +1,7 @@
 {
   "id": "cover_pertanyaan_wajah_crop",
   "role": "cover",
-  "status": "draft",
+  "status": "approved",
   "density": "low",
   "needs_photo": "required",
   "pose_tags": [

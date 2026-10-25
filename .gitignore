@@ -11,3 +11,6 @@ __pycache__/
 *.diff
 *.db
 *.sqlite3
+# Local idea & roadmap notes
+TODO_VIDEO_ROADMAP.md
+backend/video_system.md

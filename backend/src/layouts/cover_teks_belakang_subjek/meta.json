@@ -1,7 +1,7 @@
 {
   "id": "cover_teks_belakang_subjek",
   "role": "cover",
-  "status": "draft",
+  "status": "approved",
   "density": "low",
   "needs_photo": "required",
   "pose_tags": [
