@@ -1,0 +1,20 @@
+{
+  "id": "cta_foto_ajakan",
+  "role": "cta",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "required",
+  "pose_tags": [
+    "senyum",
+    "menunjuk",
+    "pegang_tablet",
+    "pegang_laptop"
+  ],
+  "photo_crop": "half_body",
+  "tags": [
+    "photo:hero_side",
+    "tone:friendly"
+  ],
+  "reference_notes": "Penutup berfoto: judul ajakan dan penjelasan di atas, operator kecil di sudut bawah, satu baris simpan opsional di sisi yang kosong.",
+  "batch": 5
+}

@@ -1,0 +1,37 @@
+{
+  "min": {
+    "slots": {
+      "title": "Ikuti Untuk Tips Lainnya"
+    },
+    "params": {
+      "lines": "2"
+    },
+    "emphasis": [
+      "Ikuti"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Bagikan ke Rekan Satu Timmu",
+      "subtitle": "Satu pengingat kecil bisa menjaga satu shift.",
+      "secondary": "Simpan biar tidak lupa"
+    },
+    "params": {},
+    "emphasis": [
+      "Bagikan"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Terima Kasih Sudah Membaca Sampai Habis",
+      "subtitle": "Sampai jumpa di kiriman berikutnya, tetap selamat bekerja.",
+      "secondary": "Simpan untuk dibaca lagi"
+    },
+    "params": {
+      "lines": "4"
+    },
+    "emphasis": [
+      "Terima"
+    ]
+  }
+}

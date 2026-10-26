@@ -1,0 +1,16 @@
+{
+  "id": "cta_simpan_bagikan",
+  "role": "cta",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "cta:save",
+    "cta:share",
+    "list:actions"
+  ],
+  "reference_notes": "Dua aksi native IG (simpan, bagikan) sebagai baris ikon + alasan singkat. Tanpa tombol palsu: tidak ada pil, panah, atau 'klik di sini'.",
+  "batch": 5
+}

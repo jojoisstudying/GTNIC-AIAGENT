@@ -1,0 +1,33 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 12,
+      "max_chars": 70,
+      "min_font_px": 56
+    },
+    "prompt": {
+      "type": "text",
+      "required": false,
+      "max_chars": 44,
+      "min_font_px": 30
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 90,
+      "min_font_px": 30,
+      "emphasis": true
+    }
+  },
+  "params": {
+    "bubble_side": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "default": "left"
+    }
+  }
+}

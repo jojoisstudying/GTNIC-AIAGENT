@@ -1,0 +1,40 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 48,
+      "min_font_px": 72,
+      "emphasis": true
+    },
+    "save_text": {
+      "type": "text",
+      "required": false,
+      "max_chars": 40,
+      "min_font_px": 30
+    },
+    "share_text": {
+      "type": "text",
+      "required": false,
+      "max_chars": 40,
+      "min_font_px": 30
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 90,
+      "min_font_px": 30,
+      "emphasis": true
+    }
+  },
+  "params": {
+    "lines": {
+      "enum": [
+        "3",
+        "2"
+      ],
+      "default": "3"
+    }
+  }
+}

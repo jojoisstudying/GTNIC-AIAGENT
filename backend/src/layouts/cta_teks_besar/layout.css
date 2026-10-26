@@ -1,0 +1,7 @@
+.L-cta_teks_besar .stack{position:absolute;left:64px;right:64px;top:190px;bottom:210px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-cta_teks_besar .top{width:952px;display:flex;flex-direction:column;gap:34px;align-items:flex-start}
+.L-cta_teks_besar .fit-title{width:952px}
+.L-cta_teks_besar .bar{width:300px;height:18px;border-radius:9px;background:var(--accent)}
+.L-cta_teks_besar .bot{display:flex;flex-direction:column;gap:24px;align-items:flex-start}
+.L-cta_teks_besar .sec{display:flex;align-items:center;gap:14px;font-family:var(--f-medium);font-weight:500;font-size:32px;color:var(--fg)}
+.L-cta_teks_besar .sec svg{flex:none}

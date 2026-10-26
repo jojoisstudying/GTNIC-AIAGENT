@@ -66,10 +66,13 @@ Backend AI Agent menggunakan **FastAPI**. Ketika backend berjalan, teman fronten
 
 Di folder `backend`:
 ```bash
-# Aktifkan virtual environment
-source .venv/bin/activate
+# Aktifkan virtual environment (gunakan environment Python AI):
+# Jika menggunakan fish shell:
+source /home/ranggajm/.venvs/ai/bin/activate.fish
+# Atau jika menggunakan bash / zsh:
+source /home/ranggajm/.venvs/ai/bin/activate
 
-# Jalankan server
-uvicorn src.api:app --reload --port 8000
+# Jalankan server FastAPI (pastikan PYTHONPATH diset ke direktori backend):
+PYTHONPATH=. uvicorn src.api:app --reload --port 8000
 ```
-Server akan aktif di `http://localhost:8000`.
+Server akan aktif di `http://localhost:8000` dan Swagger Docs di `http://localhost:8000/docs`.

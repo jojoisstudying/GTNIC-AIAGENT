@@ -1,0 +1,35 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 48,
+      "min_font_px": 88,
+      "emphasis": true
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 90,
+      "min_font_px": 30,
+      "emphasis": true
+    },
+    "secondary": {
+      "type": "text",
+      "required": false,
+      "max_chars": 44,
+      "min_font_px": 30
+    }
+  },
+  "params": {
+    "lines": {
+      "enum": [
+        "3",
+        "4",
+        "2"
+      ],
+      "default": "3"
+    }
+  }
+}

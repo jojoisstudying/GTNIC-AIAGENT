@@ -1,0 +1,16 @@
+{
+  "id": "cta_teks_besar",
+  "role": "cta",
+  "status": "draft",
+  "density": "low",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "typo:fit_width_lines",
+    "typo:massive",
+    "deco:accent_bar"
+  ],
+  "reference_notes": "Penutup tipografi murni: ajakan sangat besar memenuhi lebar, garis aksen tebal, satu baris penjelasan di dasar.",
+  "batch": 5
+}

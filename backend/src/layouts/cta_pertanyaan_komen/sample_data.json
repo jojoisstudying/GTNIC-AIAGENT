@@ -1,0 +1,33 @@
+{
+  "min": {
+    "slots": {
+      "title": "Apa Tantangan Terbesarmu Saat Kerja?"
+    },
+    "params": {},
+    "emphasis": []
+  },
+  "typical": {
+    "slots": {
+      "title": "Kebiasaan Apa Yang Paling Membantumu Tetap Aman?",
+      "prompt": "Ceritakan di komentar",
+      "subtitle": "Kami baca dan balas satu per satu."
+    },
+    "params": {
+      "bubble_side": "right"
+    },
+    "emphasis": [
+      "satu"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Pernahkah Kamu Hampir Celaka Karena Hal Sepele Di Tempat Kerja?",
+      "prompt": "Jawab di kolom komentar",
+      "subtitle": "Ceritamu bisa jadi pelajaran untuk rekan satu tim."
+    },
+    "params": {},
+    "emphasis": [
+      "pelajaran"
+    ]
+  }
+}

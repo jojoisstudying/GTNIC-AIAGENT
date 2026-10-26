@@ -1,0 +1,7 @@
+.L-cta_simpan_bagikan .stack{position:absolute;left:64px;right:64px;top:190px;bottom:210px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-cta_simpan_bagikan .acts{width:952px;display:flex;flex-direction:column;border-top:2px solid var(--line)}
+.L-cta_simpan_bagikan .act{display:flex;align-items:center;gap:34px;padding:30px 0;border-bottom:2px solid var(--line)}
+.L-cta_simpan_bagikan .ic{flex:none;width:104px;height:104px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center}
+.L-cta_simpan_bagikan .tx{display:flex;flex-direction:column;gap:6px}
+.L-cta_simpan_bagikan .lab{font-family:var(--f-display);font-weight:700;font-size:50px;line-height:1.1;color:var(--fg)}
+.L-cta_simpan_bagikan .det{font-family:var(--f-medium);font-weight:500;font-size:34px;line-height:1.2;color:var(--fg);white-space:nowrap}

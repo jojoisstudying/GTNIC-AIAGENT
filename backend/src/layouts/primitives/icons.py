@@ -22,6 +22,8 @@ MARK_PATHS: dict[str, str] = {
     "check": '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     "bookmark": '<path d="M6.5 3.5h11v17L12 16.5l-5.5 4z"/>',
     "arrow_down": '<path d="M12 4v15"/><path d="M6 13.5l6 6 6-6"/>',
+    "send": '<path d="M20.5 3.5L3.5 10.5l6.5 2.7 2.7 6.5z"/><path d="M20.5 3.5L10 13.2"/>',
+    "comment": '<path d="M5 5.5h14v10H10.5L6 19.5v-4H5z"/>',
 }
 
 

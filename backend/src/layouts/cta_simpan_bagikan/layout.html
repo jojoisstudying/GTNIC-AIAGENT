@@ -1,0 +1,19 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import fit_title, body_text, mark %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block text_front %}
+<div class="stack">
+  {{ fit_title(lines, 200, S.title.min_font_px, 400) }}
+  <div class="acts">
+    <div class="act">
+      <span class="ic">{{ mark("bookmark", 54, 2.4) }}</span>
+      <div class="tx"><p class="lab">Simpan</p><p class="det" data-q="save" data-slot="save_text" data-min-font="{{ S.save_text.min_font_px }}">{{ slots.save_text or "Biar mudah dibuka lagi" }}</p></div>
+    </div>
+    <div class="act">
+      <span class="ic">{{ mark("send", 54, 2.4) }}</span>
+      <div class="tx"><p class="lab">Bagikan</p><p class="det" data-q="share" data-slot="share_text" data-min-font="{{ S.share_text.min_font_px }}">{{ slots.share_text or "Kirim ke rekan satu tim" }}</p></div>
+    </div>
+  </div>
+  {{ body_text(slots.subtitle, emphasis, 36, S.subtitle.min_font_px, 110, 860) }}
+</div>
+{% endblock %}

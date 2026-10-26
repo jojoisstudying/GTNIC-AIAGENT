@@ -1,0 +1,16 @@
+{
+  "id": "cta_pertanyaan_komen",
+  "role": "cta",
+  "status": "draft",
+  "density": "medium",
+  "needs_photo": "none",
+  "pose_tags": [],
+  "photo_crop": "",
+  "tags": [
+    "cta:comment",
+    "shape:speech_bubble",
+    "tone:question"
+  ],
+  "reference_notes": "Pertanyaan besar di dalam balon aksen, lalu satu baris ajakan menjawab di komentar. Tanpa kolom input tiruan.",
+  "batch": 5
+}

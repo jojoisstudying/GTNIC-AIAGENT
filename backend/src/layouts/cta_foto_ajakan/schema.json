@@ -1,0 +1,40 @@
+{
+  "slots": {
+    "title": {
+      "type": "text",
+      "required": true,
+      "min_chars": 8,
+      "max_chars": 40,
+      "min_font_px": 72,
+      "emphasis": true
+    },
+    "kicker": {
+      "type": "text",
+      "required": false,
+      "max_chars": 28,
+      "min_font_px": 28
+    },
+    "subtitle": {
+      "type": "text",
+      "required": false,
+      "max_chars": 80,
+      "min_font_px": 30,
+      "emphasis": true
+    },
+    "secondary": {
+      "type": "text",
+      "required": false,
+      "max_chars": 44,
+      "min_font_px": 30
+    }
+  },
+  "params": {
+    "photo_side": {
+      "enum": [
+        "right",
+        "left"
+      ],
+      "default": "right"
+    }
+  }
+}

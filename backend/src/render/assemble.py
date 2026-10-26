@@ -37,6 +37,7 @@ def _emphasis_ranges(text: str, emphasis: list[str]) -> list[tuple[int, int]]:
             if many_words and (m.end() - m.start()) >= WHOLE_TEXT_RATIO * len(text):
                 continue   # seluruh judul di-blok = tidak ada penekanan sama sekali
             ranges.append((m.start(), m.end()))
+            break          # aksen hemat: hanya kemunculan PERTAMA tiap frasa yang ditandai
     return ranges
 
 

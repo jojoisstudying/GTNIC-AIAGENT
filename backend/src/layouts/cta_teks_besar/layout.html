@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% from "primitives/ui.html" import fit_title, body_text, mark %}
+{% set lines = title_lines(slots.title, params.lines|int, emphasis) %}
+{% block text_front %}
+<div class="stack">
+  <div class="top">
+    {{ fit_title(lines, 270, S.title.min_font_px, 700) }}
+    <div class="bar"></div>
+  </div>
+  <div class="bot">
+    {{ body_text(slots.subtitle, emphasis, 38, S.subtitle.min_font_px, 150, 860) }}
+    {% if slots.secondary %}<div class="sec">{{ mark("bookmark", 38) }}<span data-q="secondary" data-slot="secondary" data-min-font="{{ S.secondary.min_font_px }}">{{ slots.secondary }}</span></div>{% endif %}
+  </div>
+</div>
+{% endblock %}

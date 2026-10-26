@@ -1,0 +1,37 @@
+{
+  "min": {
+    "slots": {
+      "title": "Simpan Dulu, Bagikan Nanti"
+    },
+    "params": {
+      "lines": "2"
+    },
+    "emphasis": [
+      "Simpan"
+    ]
+  },
+  "typical": {
+    "slots": {
+      "title": "Simpan Tips Ini Untuk Shift Besok",
+      "save_text": "Biar tidak lupa langkahnya",
+      "share_text": "Kirim ke rekan satu shift",
+      "subtitle": "Satu kiriman bisa membantu satu tim."
+    },
+    "params": {},
+    "emphasis": [
+      "Shift"
+    ]
+  },
+  "max": {
+    "slots": {
+      "title": "Simpan Panduan Ini dan Bagikan ke Rekan Satu Tim",
+      "save_text": "Untuk dibuka sebelum mulai kerja",
+      "share_text": "Kirim ke yang butuh pengingat",
+      "subtitle": "Semakin banyak yang tahu, semakin aman area kerja kita."
+    },
+    "params": {},
+    "emphasis": [
+      "Panduan"
+    ]
+  }
+}

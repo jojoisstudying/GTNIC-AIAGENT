@@ -1,0 +1,10 @@
+.L-cta_pertanyaan_komen .stack{position:absolute;left:64px;right:64px;top:190px;bottom:210px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start}
+.L-cta_pertanyaan_komen .q{position:relative;width:952px;padding:56px 56px 60px;border-radius:64px;background:var(--accent);color:var(--accent-fg)}
+.L-cta_pertanyaan_komen .q .headline{color:var(--accent-fg)}
+.L-cta_pertanyaan_komen .q::after{content:"";position:absolute;bottom:-46px;border-style:solid;border-width:48px 10px 0 54px;border-color:var(--accent) transparent transparent transparent}
+.L-cta_pertanyaan_komen .q.tail-left::after{left:90px}
+.L-cta_pertanyaan_komen .q.tail-right::after{right:90px;border-width:48px 54px 0 10px}
+.L-cta_pertanyaan_komen .ans{display:flex;align-items:center;gap:30px}
+.L-cta_pertanyaan_komen .ic{flex:none;width:100px;height:100px;border-radius:50%;background:var(--fg);color:var(--bg);display:grid;place-items:center}
+.L-cta_pertanyaan_komen .tx{display:flex;flex-direction:column;gap:10px}
+.L-cta_pertanyaan_komen .pr{font-family:var(--f-display);font-weight:700;font-size:46px;line-height:1.1;color:var(--fg);white-space:nowrap}

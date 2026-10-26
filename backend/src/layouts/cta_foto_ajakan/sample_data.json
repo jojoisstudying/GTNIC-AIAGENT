@@ -1,0 +1,40 @@
+{
+  "min": {
+    "slots": {
+      "title": "Yuk Gabung Bersama Kami"
+    },
+    "params": {},
+    "emphasis": [
+      "Gabung"
+    ],
+    "photo": "senyum"
+  },
+  "typical": {
+    "slots": {
+      "kicker": "Sampai jumpa",
+      "title": "Siap Belajar Langsung Dari Lapangan?",
+      "subtitle": "Ikuti kami untuk tips kerja aman setiap minggu.",
+      "secondary": "Simpan biar tidak lupa"
+    },
+    "params": {
+      "photo_side": "left"
+    },
+    "emphasis": [
+      "Lapangan"
+    ],
+    "photo": "menunjuk"
+  },
+  "max": {
+    "slots": {
+      "kicker": "Ayo mulai",
+      "title": "Ikuti Kami Untuk Tips Kerja Aman",
+      "subtitle": "Setiap minggu kami bagikan kebiasaan kecil yang menjaga tim tetap selamat.",
+      "secondary": "Bagikan ke rekan satu tim"
+    },
+    "params": {},
+    "emphasis": [
+      "Aman"
+    ],
+    "photo": "pegang_laptop"
+  }
+}

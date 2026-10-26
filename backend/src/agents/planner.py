@@ -466,7 +466,9 @@ class _Ctx:
         self.usage = _usage(history)
         self.blocked_covers = _recent_covers(history, approved)
         self.past_content = [h.get("content") or [] for h in (history or [])[:2]]
+        self.past_cta = {c for h in (history or [])[:1] for c in (h.get("cta") or []) if c}   # CTA post terakhir
         self.cpos: int | None = None    # indeks slide isi yang sedang dipilih (None untuk cover/cta)
+        self.slide: dict | None = None  # slide yang sedang dipilih layout-nya (untuk skor CTA)
         self.rng = rng
         self.prev = None            # spec slide sebelumnya
         self.prev_photo = False
@@ -506,6 +508,8 @@ def _score(spec, ctx: _Ctx) -> float:
         s += 5.0
     if _repeats_position(spec, ctx):
         s += 3.0
+    if ctx.slide is not None and spec.meta.role == "cta" and _layout_actions(spec) & _cta_intents(ctx.slide):
+        s -= 2.0                   # aksi yang diminta teks persis dilayani layout ini
     prev = ctx.prev
     if prev is not None:
         s += 1.5 * len(set(spec.meta.tags) & set(prev.meta.tags))
@@ -519,6 +523,36 @@ def _score(spec, ctx: _Ctx) -> float:
         elif ctx.photo < MIN_PHOTO_SLIDES:
             s -= 1.0
     return s + ctx.rng.random() * 0.6
+
+
+_CTA_INTENT = {"save": ("simpan", "save", "bookmark"),
+               "share": ("bagikan", "share", "teruskan", "kirim ke"),
+               "comment": ("komen", "comment", "jawab", "balas", "ceritakan"),
+               "follow": ("ikuti", "follow")}
+_CTA_TAGS = {"save": "save", "share": "share", "comment": "comment", "comment_keyword": "comment",
+             "question_comment": "comment", "follow": "follow"}
+
+
+def _cta_intents(slide: dict) -> set:
+    """Aksi yang DIMINTA teks slide (simpan/bagikan/komen/ikuti), dibaca dari headline + subtext."""
+    text = f"{slide.get('headline', '')} {slide.get('subtext', '')}".lower()
+    return {k for k, words in _CTA_INTENT.items() if any(w in text for w in words)}
+
+
+def _layout_actions(spec) -> set:
+    """Aksi yang DIKLAIM layout lewat tag cta:* atau slot keyword. Kosong = layout generik (tidak mengklaim aksi)."""
+    acts = {_CTA_TAGS[tag[4:]] for tag in spec.meta.tags if tag.startswith("cta:") and tag[4:] in _CTA_TAGS}
+    if "keyword" in spec.slots:
+        acts.add("comment")
+    return acts
+
+
+def _cta_misaligned(spec, slide: dict) -> bool:
+    """CTA yang mengklaim aksi berbeda dari yang diminta teks (mis. layout 'Simpan/Bagikan' untuk ajakan komentar)."""
+    if slide.get("role") not in {"cta", "single"} or spec.meta.role != "cta":
+        return False
+    acts, wanted = _layout_actions(spec), _cta_intents(slide)
+    return bool(acts and wanted and not (acts & wanted))
 
 
 def _repeats_position(spec, ctx: _Ctx) -> bool:
@@ -542,6 +576,7 @@ def _select(slide: dict, ctx: _Ctx):
     """Pilih layout final. LLM dihormati bila memenuhi aturan keras; kalau tidak, kode memilih
     kandidat terbaik berdasarkan skor variasi. Mengembalikan (spec, salinan_terisi) atau (None, None)."""
     role = slide.get("role")
+    ctx.slide = slide
     allowed = SLIDE_TO_LAYOUT_ROLES.get(role, CONTENT_ROLES)
     cands = []
     for spec in ctx.approved.values():
@@ -553,11 +588,19 @@ def _select(slide: dict, ctx: _Ctx):
     current = ctx.approved.get(slide.get("layout_id"))
     keep = next((c for c in pool if c[0] is current), None)
     fresh = [c for c in pool if c[0].id not in ctx.used] or pool
-    novel = [c for c in fresh if not _repeats_position(c[0], ctx)]
-    if keep and keep[0].id not in ctx.used and (not _repeats_position(keep[0], ctx) or not novel):
+    def misaligned(c) -> bool:
+        return _cta_misaligned(c[0], slide)
+
+    def repeated(c) -> bool:
+        return _repeats_position(c[0], ctx) or (role == "cta" and c[0].id in ctx.past_cta)
+
+    # Urutan prioritas: selaras & baru > selaras tapi berulang > (terakhir) apa pun yang tersisa.
+    aligned = [c for c in fresh if not misaligned(c)]
+    novel = [c for c in aligned if not repeated(c)]
+    if keep and keep[0].id not in ctx.used and not misaligned(keep) and (not repeated(keep) or not novel):
         return keep
     if fresh:
-        return min(novel or fresh, key=lambda c: _score(c[0], ctx))
+        return min(novel or aligned or fresh, key=lambda c: _score(c[0], ctx))
     if keep:
         return keep
     if cands:                      # semua kandidat melanggar aturan keras: ambil terbaik, validator yang menilai
@@ -856,7 +899,7 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
             messages=[{"role": "system", "content": SYSTEM},
                       {"role": "user", "content": PROMPT.format(issues=fb, **static)}],
             step="planner", model=model, temperature=RETRY_TEMPERATURES[min(attempt, len(RETRY_TEMPERATURES)) - 1],
-            max_completion_tokens=8192)
+            max_completion_tokens=4096)
         plan = _json_object(resp.choices[0].message.content or "")
         if plan is None:
             issues = ["output bukan JSON valid"]

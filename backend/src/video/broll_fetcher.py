@@ -96,17 +96,25 @@ class BRollFetcher:
             return str(videos[0])
         return None
 
-    def fetch_clip(self, queries: List[str]) -> Optional[str]:
+    def fetch_clip(self, queries: List[str], prefer_cache: bool = True) -> Optional[str]:
         """
-        Search through the list of queries, prioritizing new/varied clips from Pexels API
-        (sampling from top candidates) rather than always reusing the exact same cached file.
+        Search through the list of queries, prioritizing cached videos if prefer_cache=True.
+        If not in cache, query Pexels API and save to cache.
         """
         import random
 
         if not queries:
             return self._get_fallback_video()
 
-        # 1. Query Pexels API first for variety
+        # 1. Check local cache first if prefer_cache is True
+        if prefer_cache:
+            for q in queries:
+                q_hash = self._get_cache_key(q)
+                cached = self._find_cached_video(q_hash)
+                if cached:
+                    return cached
+
+        # 2. Query Pexels API for variety / fresh content
         for q in queries:
             try:
                 res = self.client.search_videos(query=q, per_page=6, orientation="portrait")
@@ -120,19 +128,28 @@ class BRollFetcher:
                         if download_url:
                             v_id = v.get("id") or random.randint(1000, 999999)
                             target_file = self.cache_dir / f"pexels_{v_id}.mp4"
+                            query_target_file = self.cache_dir / f"{self._get_cache_key(q)}.mp4"
+
                             if target_file.exists() and target_file.stat().st_size > 1000:
                                 return str(target_file)
                             if self._download_video(download_url, target_file):
+                                # Also link or create copy for query hash to fulfill query cache contract
+                                if not query_target_file.exists():
+                                    try:
+                                        import shutil
+                                        shutil.copyfile(target_file, query_target_file)
+                                    except Exception:
+                                        pass
                                 return str(target_file)
             except Exception:
                 pass
 
-        # 2. Fallback to existing cached queries if Pexels API rate-limited or offline
+        # 3. Fallback to existing cached queries if Pexels API rate-limited or offline
         for q in queries:
             q_hash = self._get_cache_key(q)
             cached = self._find_cached_video(q_hash)
             if cached:
                 return cached
 
-        # 3. Final local fallback
+        # 4. Final local fallback
         return self._get_fallback_video()
