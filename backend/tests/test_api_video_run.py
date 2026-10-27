@@ -109,6 +109,37 @@ def test_qc_failure_marks_run_failed_with_issues(env, monkeypatch):
         assert "Missing audio stream" in run.error
 
 
+def test_script_failure_shows_readable_error_on_run(env, monkeypatch):
+    from src.video.scriptwriter import ScriptGenerationError
+
+    factory, out_dir, run_id = env
+    msg = "Scriptwriter gagal membuat naskah valid setelah 3 percobaan. Masalah terakhir: Total narasi 12 kata"
+    monkeypatch.setattr("src.video.pipeline.VideoPipeline", _fake_pipeline(ScriptGenerationError(msg)))
+
+    api._execute_video_pipeline_task(run_id, "topik uji", 30)
+
+    with factory() as s:
+        run = s.get(Run, run_id)
+        assert run.status == "failed"
+        assert "Scriptwriter gagal" in run.error and "Total narasi" in run.error
+
+
+def test_video_task_injects_topic_researcher(env, monkeypatch):
+    factory, out_dir, run_id = env
+    seen = {}
+
+    class SpyPipeline:
+        def __init__(self, context=None, researcher=None, **_):
+            seen["researcher"] = researcher
+
+        async def run_pipeline(self, topic, target_duration_sec=30, out_video_path=None, **_):
+            raise RuntimeError("stop")
+
+    monkeypatch.setattr("src.video.pipeline.VideoPipeline", SpyPipeline)
+    api._execute_video_pipeline_task(run_id, "topik uji", 30)
+    assert callable(seen["researcher"])
+
+
 def test_exception_marks_run_failed_instead_of_stuck_running(env, monkeypatch):
     factory, out_dir, run_id = env
     monkeypatch.setattr("src.video.pipeline.VideoPipeline", _fake_pipeline(RuntimeError("boom")))

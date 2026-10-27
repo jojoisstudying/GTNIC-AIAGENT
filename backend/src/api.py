@@ -59,7 +59,7 @@ class TriggerRunRequest(BaseModel):
 
 class VideoRunRequest(BaseModel):
     topic: str = Field(..., description="Topik video Reels / Shorts")
-    target_duration: int = Field(30, description="Target durasi video dalam detik")
+    target_duration: int = Field(30, ge=15, le=60, description="Target durasi video dalam detik (15-60)")
 
 
 class AssetUploadRequest(BaseModel):
@@ -281,6 +281,7 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int):
     """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
     import asyncio
     from src.video.pipeline import VideoPipeline
+    from src.video.topic_research import gather_topic_research
 
     brand = pipeline.load_brand()
     ctx = create_run_context(topic, brand, run_id=run_id)
@@ -288,7 +289,10 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int):
         ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video"})
         out_path = config.OUTPUT_DIR / "reels" / f"reels_{run_id}.mp4"
 
-        vp = VideoPipeline(context=ctx)
+        vp = VideoPipeline(
+            context=ctx,
+            researcher=lambda t: gather_topic_research(t, ctx=ctx),
+        )
         result = asyncio.run(vp.run_pipeline(
             topic=topic,
             target_duration_sec=duration,

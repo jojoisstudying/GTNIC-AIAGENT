@@ -6,7 +6,7 @@ import time
 import asyncio
 import argparse
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Callable, Dict, Optional
 
 from src import config
 from src.core.context import RunContext
@@ -26,14 +26,21 @@ class VideoPipeline:
         scriptwriter: Optional[VideoScriptwriter] = None,
         broll_fetcher: Optional[BRollFetcher] = None,
         context: Optional[RunContext] = None,
+        researcher: Optional[Callable[[str], Dict[str, Any]]] = None,
     ):
+        """`researcher(topic) -> {"ok", "context", "sources", "error"}` dipanggil sebelum scriptwriter
+        jika `research_context` tidak diberikan. Default None = tanpa riset (tidak ada panggilan jaringan)."""
+        self.ctx = context
+        self.researcher = researcher
         # Kalau ada RunContext, pakai LLMClient milik run supaya token & cost
         # scriptwriter ikut terakumulasi di ctx.llm (dan tersimpan ke tabel runs).
         if scriptwriter is None:
-            scriptwriter = VideoScriptwriter(llm_client=context.llm if context else None)
+            scriptwriter = VideoScriptwriter(
+                llm_client=context.llm if context else None,
+                emit=lambda name, detail=None, **kw: self._emit(name, detail, **kw),
+            )
         self.scriptwriter = scriptwriter
         self.broll_fetcher = broll_fetcher or BRollFetcher()
-        self.ctx = context
 
     def _emit(
         self,
@@ -75,16 +82,39 @@ class VideoPipeline:
         final_video_file = out_video_path or str(output_dir / f"reels_{int(time.time())}.mp4")
 
         # ---------------------------------------------------------------------
-        # Stage 1: Scriptwriter Agent
+        # Stage 0: Riset berbasis topik (opsional; kegagalan tidak menghentikan run)
+        # ---------------------------------------------------------------------
+        if research_context is None and self.researcher is not None:
+            try:
+                res = self.researcher(topic) or {}
+            except Exception as e:  # noqa: BLE001
+                res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            if res.get("ok") and res.get("context"):
+                research_context = res["context"]
+                self._emit("video_research_done", {
+                    "sources_count": len(res.get("sources", [])),
+                    "urls": [x.get("url") for x in res.get("sources", [])][:5],
+                })
+            else:
+                self._emit("video_research_skipped", {
+                    "reason": res.get("error") or "tidak ada hasil",
+                    "note": "Naskah dibuat dari pengetahuan umum, tanpa angka/statistik.",
+                }, kind="warning", status="failed")
+
+        # ---------------------------------------------------------------------
+        # Stage 1: Scriptwriter Agent (raise ScriptGenerationError bila naskah tidak valid)
         # ---------------------------------------------------------------------
         script = self.scriptwriter.generate_script(
             topic=topic,
             research_context=research_context,
             target_duration_sec=target_duration_sec,
         )
+        meta = getattr(self.scriptwriter, "last_meta", None)
         self._emit("video_script_generated", {
             "scenes_count": len(script.scenes),
             "topic": script.topic,
+            "research_used": bool(research_context),
+            **(meta if isinstance(meta, dict) else {}),
         })
 
         # ---------------------------------------------------------------------
@@ -112,6 +142,12 @@ class VideoPipeline:
                 "word_timings": word_timings,
                 "duration_sec": scene_dur_sec,
             })
+
+        planned_sec = sum(item["duration_sec"] for item in scenes_data)
+        if target_duration_sec and abs(planned_sec - target_duration_sec) > 0.25 * target_duration_sec:
+            self._emit("video_duration_off_target", {
+                "target_sec": target_duration_sec, "planned_sec": round(planned_sec, 1),
+            }, kind="warning", status="failed")
 
         # ---------------------------------------------------------------------
         # Stage 4: Video Compositor Assembly
@@ -165,7 +201,8 @@ async def main_cli():
     args = parser.parse_args()
 
     print(f"🎬 Memulai pipeline video untuk topik: '{args.topic}'...")
-    pipeline = VideoPipeline()
+    from src.video.topic_research import gather_topic_research
+    pipeline = VideoPipeline(researcher=gather_topic_research)
     result = await pipeline.run_pipeline(
         topic=args.topic,
         target_duration_sec=args.duration,
