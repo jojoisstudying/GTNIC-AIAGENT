@@ -1,6 +1,5 @@
 """Video Generation Pipeline Orchestrator and CLI Runner."""
 
-import json
 import os
 import sys
 import time
@@ -17,20 +16,6 @@ from src.video.tts_engine import generate_voiceover_with_subtitles
 from src.video.broll_fetcher import BRollFetcher
 from src.video.compositor import assemble_full_video
 from src.video.qc_video import verify_video_quality
-
-
-BRAND_JSON_PATH = config.ROOT / "config" / "brand.json"
-
-
-def load_brand() -> dict:
-    """Load brand configuration from brand.json."""
-    if BRAND_JSON_PATH.exists():
-        try:
-            with open(BRAND_JSON_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"company": "Default Brand", "tokens": {}}
 
 
 class VideoPipeline:
