@@ -1,7 +1,7 @@
 {
   "id": "cta_foto_ajakan",
   "role": "cta",
-  "status": "draft",
+  "status": "approved",
   "density": "medium",
   "needs_photo": "required",
   "pose_tags": [

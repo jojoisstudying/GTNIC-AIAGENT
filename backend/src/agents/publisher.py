@@ -64,8 +64,9 @@ def check_publishing_quota(ctx=None) -> dict:
 def preflight(plan_out: dict, design: dict, allow_placeholder: bool = False,
               session: Session | None = None, ctx=None) -> list[str]:
     problems = []
-    plan = plan_out.get("plan") or {}
-    if not plan_out.get("ok"):
+    # Normalisasi format plan: baik {"ok": true, "plan": {...}} maupun langsung payload {...}
+    plan = plan_out.get("plan") if "plan" in plan_out else plan_out
+    if "ok" in plan_out and not plan_out.get("ok"):
         problems.append(f"rencana belum lolos validasi: {plan_out.get('issues')}")
     if not design.get("ok"):
         bad = [f"slide {m['index']}: {m['issues']}" for m in design.get("slides", []) if m.get("issues")]

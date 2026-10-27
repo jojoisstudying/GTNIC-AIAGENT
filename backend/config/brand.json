@@ -1,20 +1,19 @@
 {
-  "company": "Industri Dummy",
-  "industry": "manufaktur komponen industri (GANTI sesuai perusahaan demo-mu)",
-  "description": "Perusahaan manufaktur yang ingin tampil profesional dan dekat dengan calon karyawan serta mitra bisnis (GANTI)",
-  "audience": "calon karyawan usia 20-35, mitra B2B, dan komunitas industri di Indonesia",
-  "tone": "profesional, hangat, ringkas, tidak lebay, Bahasa Indonesia",
+  "company": "Resilience",
+  "industry": "Pengembangan web & mobile app, desain UI/UX, audit sistem, dan pemasaran digital.",
+  "description": "mumnya merujuk pada beberapa entitas atau layanan di Indonesia, dengan yang paling umum adalah penyedia jasa pengembangan solusi digital/IT serta perusahaan distribusi.",
+  "audience": "",
+  "tone": "profesional, ringkas, menarik, Bahasa Indonesia",
   "content_pillars": [
-    "tips produktivitas kerja",
-    "budaya perusahaan",
-    "keselamatan kerja",
-    "info lowongan"
+    "edukasi industri",
+    "tips praktis",
+    "studi kasus",
+    "kabar terbaru"
   ],
   "rules": [
-    "Jangan klaim angka atau fakta tanpa sumber",
-    "Tidak boleh ada konten SARA, politik, atau provokatif",
-    "Hashtag maksimal 8, relevan dengan industri",
-    "Jangan menyebut nama karyawan tanpa persetujuan"
+    "Gunakan data yang valid",
+    "Bahasa komunikatif dan lugas",
+    "Maksimal 8 hashtag relevan"
   ],
   "available_poses": [
     "senyum",
@@ -25,45 +24,45 @@
     "tangan_disilang"
   ],
   "colors": {
-    "primary": "#0B2A5B",
-    "secondary": "#EAF1FF",
-    "accent": "#FFB400",
-    "text_on_primary": "#FFFFFF"
+    "primary": "#0f172a",
+    "secondary": "#f8fafc",
+    "accent": "#10b981",
+    "text_on_primary": "#ffffff"
   },
-  "font_path": "assets/fonts/YourFont-Bold.ttf",
+  "font_path": "assets/fonts/DejaVuSans-Bold.ttf",
   "logo_path": "assets/logo.png",
   "tokens": {
-    "bg": "#0B2A5B",
-    "light_bg": "#EAF1FF",
-    "fg": "#FFFFFF",
-    "accent": "#FFB400"
+    "bg": "#0f172a",
+    "light_bg": "#f8fafc",
+    "fg": "#ffffff",
+    "accent": "#10b981"
   },
   "fonts": {
     "display": {
-      "family": "Poppins",
-      "file": "Poppins-Bold.ttf",
+      "family": "DejaVu Sans",
+      "file": "DejaVuSans-Bold.ttf",
       "weight": 700
     },
     "body": {
-      "family": "Poppins",
-      "file": "Poppins-Regular.ttf",
+      "family": "DejaVu Sans",
+      "file": "DejaVuSans.ttf",
       "weight": 400
     },
     "medium": {
-      "family": "Poppins",
-      "file": "Poppins-Medium.ttf",
+      "family": "DejaVu Sans",
+      "file": "DejaVuSans.ttf",
       "weight": 500
     }
   },
   "chrome": {
-    "brand_text": "Industri Dummy",
+    "brand_text": "Resilience",
     "header": true,
     "page_counter": true,
     "footer": {
       "show": true,
       "lines": [
-        "@industridummy",
-        "0812-0000-0000"
+        "@gtnic",
+        "089716782567"
       ],
       "qr_path": null
     },

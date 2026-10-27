@@ -335,6 +335,9 @@ def _resolve_html_layout_id(layout_id: str | None, role: str, photo: str | None,
         return _default_html_layout(role, photo)
     if role in {"content", "single"} and spec.meta.role in {"cover", "cta"}:
         return _default_html_layout(role, photo)
+    # Self-healing: jika layout butuh foto tapi tidak ada foto yang tersedia/valid
+    if spec.meta.needs_photo == "required" and not photo:
+        return _default_html_layout(role, photo)
     if spec.id == "daftar_bernomor" and slide:
         raw_slots = slide.get("slots") or {}
         raw_params = slide.get("params") or {}

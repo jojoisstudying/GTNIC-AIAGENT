@@ -20,7 +20,10 @@ class BudgetExceeded(RuntimeError):
 def _is_network_retryable(exc: BaseException) -> bool:
     if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError, ConnectionError, requests.Timeout, requests.ConnectionError)):
         return True
-    return isinstance(exc, APIStatusError) and exc.status_code >= 500
+    if isinstance(exc, APIStatusError):
+        # Retry server error (500, 502, 503) maupun 429 atau 408
+        return exc.status_code >= 500 or exc.status_code in (408, 429, 520, 524)
+    return False
 
 
 class LLMClient:
@@ -135,14 +138,34 @@ class LLMClient:
                                       detail={"key_id": KeyPool.mask_key(api_key),
                                               "attempt": key_attempts})
                 continue
+            except APIStatusError as exc:
+                # APIStatusError yang tembus dari retryer (misalnya rate limit 429 atau upstream timeout dari Groq)
+                status_code = getattr(exc, "status_code", 0)
+                if status_code in (429, 500, 502, 503, 520, 524):
+                    self.key_pool.cooldown(api_key, duration=self.key_pool.cooldown_seconds or 5.0)
+                    key_attempts += 1
+                    if self.emitter:
+                        self.emitter.emit("retry", "groq", step=step, status=f"key_cooldown_{status_code}",
+                                          detail={"key_id": KeyPool.mask_key(api_key),
+                                                  "status_code": status_code,
+                                                  "attempt": key_attempts})
+                    continue
+                if self.emitter:
+                    self.emitter.emit("error", "llm_request", step=step, status="failed",
+                                      detail={"model": model, "error_type": "APIStatusError",
+                                              "status_code": status_code,
+                                              "message": str(exc)[:300],
+                                              "key_id": KeyPool.mask_key(api_key)})
+                raise RuntimeError(f"LLM request failed (APIStatusError: {status_code} - {str(exc)[:150]})") from None
             except BudgetExceeded:
                 raise
             except Exception as exc:
                 if self.emitter:
                     self.emitter.emit("error", "llm_request", step=step, status="failed",
                                       detail={"model": model, "error_type": type(exc).__name__,
+                                              "message": str(exc)[:300],
                                               "key_id": KeyPool.mask_key(api_key)})
-                raise RuntimeError(f"LLM request failed ({type(exc).__name__})") from None
+                raise RuntimeError(f"LLM request failed ({type(exc).__name__}: {str(exc)[:150]})") from None
 
         raise ProviderExhausted(f"All keys exhausted after rate limits for model '{model}'")
 

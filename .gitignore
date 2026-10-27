@@ -16,3 +16,5 @@ TODO_VIDEO_ROADMAP.md
 backend/video_system.md
 bundle_video_pipeline.zip
 bundle_video_pipeline/
+backend/data_archive_backup/
+*.bak
