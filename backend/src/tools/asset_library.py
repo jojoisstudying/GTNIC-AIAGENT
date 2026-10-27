@@ -112,6 +112,13 @@ def pending_assets() -> list[dict]:
     return list_assets(status="pending_review")
 
 
+def find_pending(person_id: str, pose: str) -> dict | None:
+    """Newest pending_review asset for this person+pose, so a rejected pose is replaced only once."""
+    matches = [a for a in list_assets(status="pending_review")
+               if a.get("person_id") == person_id and pose in (a.get("tags") or [])]
+    return matches[-1] if matches else None
+
+
 def get_person_reference(person_id: str) -> str | None:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", person_id):
         raise ValueError("person_id may contain only letters, numbers, underscore, and hyphen")

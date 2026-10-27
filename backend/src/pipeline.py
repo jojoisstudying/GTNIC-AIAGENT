@@ -1,133 +1,204 @@
-"""Orchestrate research, planning, and design with run-scoped persistence."""
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+"""Video Generation Pipeline Orchestrator and CLI Runner."""
 
-from sqlalchemy import func, select
+import json
+import os
+import sys
+import time
+import asyncio
+import argparse
+from pathlib import Path
+from typing import Optional, Dict, Any
 
 from src import config
-from src.agents import designer, research_agent, planner
-from src.core.context import RunContext, create_run_context
-from src.core.db import Design, Plan, ResearchSnapshot, Run
+from src.core.context import RunContext
+from src.video.models import VideoScriptSchema, VideoRunResult
+from src.video.scriptwriter import VideoScriptwriter
+from src.video.tts_engine import generate_voiceover_with_subtitles
+from src.video.broll_fetcher import BRollFetcher
+from src.video.compositor import assemble_full_video
+from src.video.qc_video import verify_video_quality
 
-RESEARCH_FILE = config.OUTPUT_DIR / "research_latest.json"
-PLAN_FILE = config.OUTPUT_DIR / "plan_latest.json"
 
-
-def _export_run_version(run_id: str, name: str, version: int, payload: dict) -> Path:
-    """Write an immutable per-run JSON export while preserving the compatibility latest copy."""
-    run_dir = config.OUTPUT_DIR / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    version_path = run_dir / f"{name}_v{version}.json"
-    version_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return version_path
+BRAND_JSON_PATH = config.ROOT / "config" / "brand.json"
 
 
 def load_brand() -> dict:
-    return json.loads((config.ROOT / "config" / "brand.json").read_text(encoding="utf-8"))
+    """Load brand configuration from brand.json."""
+    if BRAND_JSON_PATH.exists():
+        try:
+            with open(BRAND_JSON_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"company": "Default Brand", "tokens": {}}
 
 
-def load_saved_research() -> dict:
-    if not RESEARCH_FILE.exists():
-        raise RuntimeError("output/research_latest.json belum ada. Jalankan dengan --fresh dulu.")
-    saved = json.loads(RESEARCH_FILE.read_text(encoding="utf-8"))
-    if not saved.get("ok"):
-        raise RuntimeError("Hasil riset tersimpan tidak valid (ok=false). Jalankan ulang dengan --fresh.")
-    return saved["data"]
+class VideoPipeline:
+    """End-to-end multi-agent pipeline for generating vertical Reels/Shorts videos."""
+
+    def __init__(
+        self,
+        scriptwriter: Optional[VideoScriptwriter] = None,
+        broll_fetcher: Optional[BRollFetcher] = None,
+        context: Optional[RunContext] = None,
+    ):
+        # Kalau ada RunContext, pakai LLMClient milik run supaya token & cost
+        # scriptwriter ikut terakumulasi di ctx.llm (dan tersimpan ke tabel runs).
+        if scriptwriter is None:
+            scriptwriter = VideoScriptwriter(llm_client=context.llm if context else None)
+        self.scriptwriter = scriptwriter
+        self.broll_fetcher = broll_fetcher or BRollFetcher()
+        self.ctx = context
+
+    def _emit(
+        self,
+        name: str,
+        detail: Optional[Dict[str, Any]] = None,
+        *,
+        kind: str = "info",
+        status: str = "ok",
+    ) -> None:
+        """Emit event sesuai signature RunContext.emit(kind, name, **fields).
+
+        Payload dimasukkan ke `detail` (bukan ke `name`) supaya kolom name tetap
+        bersih dan detail muncul utuh di panel event frontend.
+        """
+        if self.ctx and hasattr(self.ctx, "emit"):
+            self.ctx.emit(kind, name, step="video", status=status, detail=detail or {})
+
+    async def run_pipeline(
+        self,
+        topic: str,
+        research_context: Optional[str] = None,
+        target_duration_sec: int = 30,
+        out_video_path: Optional[str] = None,
+        out_dir: Optional[Path] = None,
+    ) -> VideoRunResult:
+        """
+        Execute full 5-stage pipeline:
+        Stage 1: Scriptwriter Agent -> VideoScriptSchema
+        Stage 2: TTS Generation & Word Timing
+        Stage 3: B-Roll Fetching (Pexels / Cache)
+        Stage 4: Programmatic Video Assembly (MoviePy)
+        Stage 5: QC Guardrail Check
+        """
+        t0 = time.time()
+        self._emit("video_pipeline_started", {"topic": topic, "target_duration_sec": target_duration_sec})
+
+        output_dir = Path(out_dir or (config.ROOT / "output" / "reels"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        final_video_file = out_video_path or str(output_dir / f"reels_{int(time.time())}.mp4")
+
+        # ---------------------------------------------------------------------
+        # Stage 1: Scriptwriter Agent
+        # ---------------------------------------------------------------------
+        script = self.scriptwriter.generate_script(
+            topic=topic,
+            research_context=research_context,
+            target_duration_sec=target_duration_sec,
+        )
+        self._emit("video_script_generated", {
+            "scenes_count": len(script.scenes),
+            "topic": script.topic,
+        })
+
+        # ---------------------------------------------------------------------
+        # Stage 2 & 3: Audio TTS + B-Roll Fetching per Scene
+        # ---------------------------------------------------------------------
+        scenes_data = []
+        for idx, scene in enumerate(script.scenes):
+            scene_audio_path = str(output_dir / f"temp_scene_{idx + 1}.mp3")
+
+            # Stage 2: TTS
+            _, word_timings, total_ms = await generate_voiceover_with_subtitles(
+                text=scene.narration,
+                out_path=scene_audio_path,
+            )
+            # Duration in seconds (at least 2.0s)
+            scene_dur_sec = max(2.0, (total_ms / 1000.0) + 0.3)
+
+            # Stage 3: B-Roll
+            broll_clip = self.broll_fetcher.fetch_clip(scene.search_keywords)
+
+            scenes_data.append({
+                "scene_spec": scene,
+                "broll_path": broll_clip,
+                "voiceover_path": scene_audio_path,
+                "word_timings": word_timings,
+                "duration_sec": scene_dur_sec,
+            })
+
+        # ---------------------------------------------------------------------
+        # Stage 4: Video Compositor Assembly
+        # ---------------------------------------------------------------------
+        self._emit("video_assembly_started", {"scenes_count": len(scenes_data)})
+        assembled_path = assemble_full_video(
+            scenes_data=scenes_data,
+            out_video_path=final_video_file,
+            fps=30,
+        )
+
+        # Clean up temporary audio files
+        for item in scenes_data:
+            p = item.get("voiceover_path")
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
+        # ---------------------------------------------------------------------
+        # Stage 5: QC Guardrail Check
+        # ---------------------------------------------------------------------
+        total_planned_sec = sum(item["duration_sec"] for item in scenes_data)
+        qc_result = verify_video_quality(
+            video_path=assembled_path,
+            target_duration_sec=total_planned_sec,
+            tolerance_sec=5.0,
+            max_size_mb=50.0,
+        )
+        qc_result.scenes_count = len(scenes_data)
+
+        elapsed = time.time() - t0
+        self._emit("video_pipeline_finished", {
+            "ok": qc_result.ok,
+            "duration_sec": qc_result.duration_sec,
+            "elapsed_pipeline_sec": round(elapsed, 2),
+            "file_size_mb": qc_result.file_size_mb,
+            "issues": qc_result.issues,
+        }, status="ok" if qc_result.ok else "failed")
+
+        return qc_result
 
 
-def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | None = None,
-        include_design: bool = False) -> dict:
-    brand = load_brand()
-    own_context = ctx is None
-    ctx = ctx or create_run_context(topic, brand)
-    session = ctx.session
-    try:
-        ctx.emit("info", "run_started", step="pipeline", detail={"topic": topic})
-        if fresh:
-            on_step("== Agent 1: Research ==")
-            res = research_agent.run(topic, brand.get("industry", ""), on_step=on_step, ctx=ctx,
-                                     brand_facts=brand.get("verified_facts"))
-            session.add(ResearchSnapshot(run_id=ctx.run_id,
-                data_json=json.dumps(res.get("data"), ensure_ascii=False),
-                warnings_json=json.dumps(res.get("warnings", []), ensure_ascii=False), ok=bool(res.get("ok"))))
-            session.commit()
-            research_version = session.scalar(select(func.count(ResearchSnapshot.id)).where(
-                ResearchSnapshot.run_id == ctx.run_id))
-            _export_run_version(ctx.run_id, "research", research_version or 1, res)
-            RESEARCH_FILE.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-            ctx.emit("info", "research_saved", step="research", status="ok",
-                     detail={"ok": bool(res.get("ok"))})
-            if not res["ok"]:
-                raise RuntimeError("Agent 1 gagal menghasilkan JSON valid. Lihat output/research_latest.json")
-            research = res["data"]
-        else:
-            on_step("== Agent 1: memakai hasil riset tersimpan (hemat kuota) ==")
-            research = load_saved_research()
-            session.add(ResearchSnapshot(run_id=ctx.run_id,
-                data_json=json.dumps(research, ensure_ascii=False), warnings_json="[]", ok=True))
-            session.commit()
-            research_version = session.scalar(select(func.count(ResearchSnapshot.id)).where(
-                ResearchSnapshot.run_id == ctx.run_id))
-            research_export = {"ok": True, "data": research, "warnings": []}
-            _export_run_version(ctx.run_id, "research", research_version or 1, research_export)
+async def main_cli():
+    """CLI entrypoint for running the video generator pipeline."""
+    parser = argparse.ArgumentParser(description="Multi-Agent Video Reels Generator")
+    parser.add_argument("--topic", type=str, required=True, help="Topic for the video reels")
+    parser.add_argument("--duration", type=int, default=30, help="Target duration in seconds")
+    parser.add_argument("--out", type=str, default=None, help="Output MP4 file path")
+    args = parser.parse_args()
 
-        on_step("== Agent 2: Planner ==")
-        out = planner.run(topic, research, brand, on_step=on_step, ctx=ctx)
-        version = session.scalar(select(func.max(Plan.version)).where(Plan.run_id == ctx.run_id)) or 0
-        plan_row = Plan(run_id=ctx.run_id, version=version + 1, ok=bool(out.get("ok")),
-                        plan_json=json.dumps(out.get("plan"), ensure_ascii=False),
-                        issues_json=json.dumps(out.get("issues", []), ensure_ascii=False))
-        session.add(plan_row)
-        session.commit()
-        _export_run_version(ctx.run_id, "plan", plan_row.version, out)
-        ctx.emit("info", "plan_saved", step="planner", status="ok" if out.get("ok") else "failed",
-             detail={"version": plan_row.version, "ok": bool(out.get("ok"))})
-        PLAN_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"🎬 Memulai pipeline video untuk topik: '{args.topic}'...")
+    pipeline = VideoPipeline()
+    result = await pipeline.run_pipeline(
+        topic=args.topic,
+        target_duration_sec=args.duration,
+        out_video_path=args.out,
+    )
 
-        if not out.get("ok"):
-            print("Rencana gagal validasi:", out.get("issues"))
-            return out
+    if result.ok:
+        print("\n✅ VIDEO BERHASIL DIBUAT!")
+        print(f"📍 File: {result.video_path}")
+        print(f"⏱️ Durasi: {result.duration_sec:.1f} detik")
+        print(f"📦 Ukuran File: {result.file_size_mb:.2f} MB")
+        print(f"🎬 Jumlah Scene: {result.scenes_count}")
+    else:
+        print("\n❌ GAGAL QC:")
+        for issue in result.issues:
+            print(f"  - {issue}")
+        sys.exit(1)
 
-        if include_design and out.get("plan"):
-            design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "slides", ctx=ctx)
-            design_version = session.scalar(select(func.max(Design.version)).where(Design.run_id == ctx.run_id)) or 0
-            session.add(Design(run_id=ctx.run_id, plan_id=plan_row.id, version=design_version + 1,
-                               ok=bool(design_result.get("ok")),
-                               result_json=json.dumps(design_result, ensure_ascii=False),
-                               preview_path=design_result.get("preview")))
-            session.commit()
-            _export_run_version(ctx.run_id, "design", design_version + 1, design_result)
-            (config.OUTPUT_DIR / "design_latest.json").write_text(
-                json.dumps(design_result, ensure_ascii=False, indent=2), encoding="utf-8")
-            out["design"] = design_result
-            ctx.emit("info", "design_saved", step="designer", status="ok" if design_result.get("ok") else "failed",
-                     detail={"version": design_version + 1, "ok": bool(design_result.get("ok"))})
 
-        run_row = session.get(Run, ctx.run_id)
-        if run_row:
-            run_row.status = "awaiting_approval" if out.get("design", {}).get("pending_review") else (
-                "ok" if out.get("ok") else "failed")
-            run_row.finished_at = datetime.now(timezone.utc)
-            run_row.tokens_in = ctx.llm.tokens_in
-            run_row.tokens_out = ctx.llm.tokens_out
-            run_row.cost_usd = ctx.llm.cost_usd
-            session.commit()
-            ctx.emit("info", "run_finished", step="pipeline", status=run_row.status,
-                     tokens_in=run_row.tokens_in, tokens_out=run_row.tokens_out,
-                     cost_usd=run_row.cost_usd)
-        out["run_id"] = ctx.run_id
-        return out
-    except Exception as exc:
-        run_row = session.get(Run, ctx.run_id)
-        if run_row:
-            run_row.status = "failed"
-            run_row.finished_at = datetime.now(timezone.utc)
-            run_row.error = type(exc).__name__
-            session.commit()
-        ctx.emit("error", "pipeline", step="pipeline", status="failed",
-                 detail={"error_type": type(exc).__name__})
-        raise
-    finally:
-        if own_context:
-            ctx.close()
+if __name__ == "__main__":
+    asyncio.run(main_cli())

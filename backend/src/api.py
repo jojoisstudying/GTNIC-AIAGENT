@@ -67,6 +67,11 @@ class AssetUploadRequest(BaseModel):
     description: str = Field("", description="Deskripsi aset atau figur")
 
 
+class RegeneratePoseRequest(BaseModel):
+    run_id: Optional[str] = Field(None, description="Run yang menunggu pose ini; default: run asal aset")
+    prompt: str = Field("", description="Arahan pose kustom (opsional, wajib untuk pose tanpa arahan bawaan)")
+
+
 class PublishRequest(BaseModel):
     run_id: str = Field(..., description="UUID hex dari run yang ingin dipublish")
 
@@ -141,6 +146,7 @@ def _execute_resume_task(run_id: str):
             else:
                 run_row.status = "ok"
             run_row.finished_at = datetime.now(timezone.utc)
+            run_row.error = None  # error lama (mis. regenerate pose gagal) sudah tidak relevan
             run_row.tokens_in = ctx.llm.tokens_in
             run_row.tokens_out = ctx.llm.tokens_out
             run_row.cost_usd = ctx.llm.cost_usd
@@ -162,23 +168,160 @@ def _execute_resume_task(run_id: str):
         ctx.close()
 
 
+# --- Pose Regeneration ---
+
+RUN_WAITING_STATUSES = {"awaiting_approval", "awaiting_assets"}
+
+
+def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
+                             person_id: str, prompt: str):
+    """Generate kandidat pose baru (selalu pending_review); jika terkait run, lanjutkan run.
+
+    Kegagalan generate tidak boleh membuat run stuck 'running': run dikembalikan ke
+    'awaiting_assets' dengan pesan error supaya bisa dicoba lagi.
+    """
+    from src.tools import cloudflare_pose_generator
+
+    ctx = None
+    generated = False
+    try:
+        if run_id:
+            with SessionLocal() as session:
+                run_row = session.get(Run, run_id)
+                topic = run_row.topic if run_row else ""
+            ctx = create_run_context(topic, pipeline.load_brand(), run_id=run_id)
+            ctx.emit("info", "pose_regenerate_started", step="designer",
+                     detail={"replaces_asset_id": asset_id, "pose": pose, "person_id": person_id})
+        staged = cloudflare_pose_generator.generate_pose(
+            person_id, pose, prompt, force=True, ctx=ctx
+        ) if ctx else cloudflare_pose_generator.generate_pose(person_id, pose, prompt, force=True)
+        generated = True
+        if ctx:
+            ctx.emit("info", "pose_regenerate_finished", step="designer",
+                     detail={"new_asset_id": staged.get("id"), "pose": pose,
+                             "status": staged.get("status")})
+    except Exception as e:
+        print(f"[REGENERATE ERROR] asset {asset_id} pose {pose}: {e}")
+        if run_id:
+            try:
+                with SessionLocal() as session:
+                    run_row = session.get(Run, run_id)
+                    if run_row:
+                        run_row.status = "awaiting_assets"
+                        run_row.error = f"Regenerate pose '{pose}' gagal: {e}"
+                        session.commit()
+            except Exception as db_exc:
+                print(f"[REGENERATE ERROR] gagal mengembalikan status run {run_id}: {db_exc}")
+        if ctx:
+            ctx.emit("error", "pose_regenerate", step="designer", status="failed",
+                     detail={"error": str(e), "error_type": type(e).__name__, "pose": pose})
+    finally:
+        if ctx:
+            ctx.close()
+
+    if generated and run_id:
+        _execute_resume_task(run_id)
+
+
 # --- Video Run Background Execution ---
 
+def _output_url(path: Optional[str]) -> Optional[str]:
+    """Ubah path lokal di bawah OUTPUT_DIR menjadi URL statis; None jika di luar/tidak ada."""
+    if not path:
+        return None
+    try:
+        p = Path(path).resolve()
+        root = config.OUTPUT_DIR.resolve()
+        if p.exists() and p.is_relative_to(root):
+            return f"/static/output/{p.relative_to(root).as_posix()}"
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _has_video_events(session, run_id: str) -> bool:
+    """True jika run ini menjalankan pipeline video (event pertama sudah ber-step 'video')."""
+    return session.scalar(
+        select(func.count(Event.id)).where(Event.run_id == run_id, Event.step == "video")
+    ) > 0
+
+
+def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
+                       error: Optional[str] = None) -> None:
+    """Simpan hasil video sebagai Design row (plan_id kosong) dan finalisasi status Run.
+
+    Hasil video disimpan di designs.result_json dengan type="video" sehingga tidak
+    perlu migrasi skema, dan GET /runs/{id} bisa menampilkannya.
+    """
+    with SessionLocal() as session:
+        version = session.scalar(
+            select(func.max(Design.version)).where(Design.run_id == run_id)
+        ) or 0
+        session.add(Design(
+            run_id=run_id,
+            plan_id=None,
+            version=version + 1,
+            ok=bool(result_payload.get("ok")),
+            result_json=json.dumps(result_payload, ensure_ascii=False),
+            preview_path=None,
+        ))
+        run_row = session.get(Run, run_id)
+        if run_row:
+            run_row.status = status
+            run_row.finished_at = datetime.now(timezone.utc)
+            run_row.error = error
+            if ctx is not None:
+                run_row.tokens_in = ctx.llm.tokens_in
+                run_row.tokens_out = ctx.llm.tokens_out
+                run_row.cost_usd = ctx.llm.cost_usd
+        session.commit()
+
+
 def _execute_video_pipeline_task(run_id: str, topic: str, duration: int):
-    """Worker task executing video pipeline with event emitting into the same DB."""
+    """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
     import asyncio
     from src.video.pipeline import VideoPipeline
 
     brand = pipeline.load_brand()
     ctx = create_run_context(topic, brand, run_id=run_id)
     try:
+        ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video"})
+        out_path = config.OUTPUT_DIR / "reels" / f"reels_{run_id}.mp4"
+
         vp = VideoPipeline(context=ctx)
-        # Jalankan loop async
-        asyncio.run(vp.run_pipeline(topic=topic, target_duration_sec=duration))
+        result = asyncio.run(vp.run_pipeline(
+            topic=topic,
+            target_duration_sec=duration,
+            out_video_path=str(out_path),
+        ))
+
+        payload = {
+            "type": "video",
+            "ok": bool(result.ok),
+            "video_path": result.video_path,
+            "duration_sec": result.duration_sec,
+            "file_size_mb": result.file_size_mb,
+            "scenes_count": result.scenes_count,
+            "issues": list(result.issues),
+        }
+        status = "ok" if result.ok else "failed"
+        error = None if result.ok else "; ".join(result.issues) or "QC video gagal"
+        _save_video_result(run_id, payload, status, ctx=ctx, error=error)
+        ctx.emit("info", "run_finished", step="video", status=status,
+                 tokens_in=ctx.llm.tokens_in, tokens_out=ctx.llm.tokens_out,
+                 cost_usd=ctx.llm.cost_usd)
     except Exception as e:
         print(f"[API ERROR] Video pipeline execution failed for run {run_id}: {e}")
-        if ctx:
-            ctx.emit("error", "video_pipeline", error=str(e))
+        try:
+            _save_video_result(
+                run_id,
+                {"type": "video", "ok": False, "video_path": None, "issues": [str(e)]},
+                "failed", ctx=ctx, error=f"{type(e).__name__}: {e}",
+            )
+        except Exception as db_exc:  # jangan sampai kegagalan DB menyembunyikan error asli
+            print(f"[API ERROR] Gagal menyimpan status failed untuk run {run_id}: {db_exc}")
+        ctx.emit("error", "video_pipeline", step="video", status="failed",
+                 detail={"error": str(e), "error_type": type(e).__name__})
     finally:
         ctx.close()
 
@@ -317,6 +460,79 @@ def create_run(req: TriggerRunRequest, background_tasks: BackgroundTasks):
     }
 
 
+@app.get("/api/v1/runs")
+def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
+    """Riwayat run (terbaru dulu) untuk panel history dan daftar yang menunggu approval.
+
+    Query: `limit` (1-100), `offset`, `status` (mis. awaiting_approval, ok, failed, running).
+    Tiap item memuat `format` (carousel|video), `pending_review_count` (pose yang
+    masih menunggu keputusan *saat ini*), serta `thumbnail_url` / `video_url`.
+    """
+    from src.tools import asset_library
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    with SessionLocal() as session:
+        base = select(Run)
+        count_q = select(func.count(Run.id))
+        if status:
+            base = base.where(Run.status == status)
+            count_q = count_q.where(Run.status == status)
+        total = session.scalar(count_q) or 0
+        rows = session.scalars(
+            base.order_by(desc(Run.started_at)).limit(limit).offset(offset)
+        ).all()
+        run_ids = [r.id for r in rows]
+
+        latest_design: dict[str, dict] = {}
+        video_run_ids: set[str] = set()
+        if run_ids:
+            for d in session.scalars(
+                select(Design).where(Design.run_id.in_(run_ids)).order_by(Design.version.asc())
+            ):
+                try:
+                    latest_design[d.run_id] = json.loads(d.result_json or "{}")
+                except ValueError:
+                    latest_design[d.run_id] = {}
+            video_run_ids = set(session.scalars(
+                select(Event.run_id).where(Event.run_id.in_(run_ids), Event.step == "video").distinct()
+            ))
+
+    still_pending_ids = {a["id"] for a in asset_library.pending_assets()}
+
+    items = []
+    for r in rows:
+        dd = latest_design.get(r.id) or {}
+        is_video = dd.get("type") == "video" or r.id in video_run_ids
+        pending_count = 0
+        thumb = None
+        video_url = None
+        if is_video:
+            video_url = _output_url(dd.get("video_path"))
+        else:
+            pending_count = sum(1 for pr in dd.get("pending_review") or [] if pr.get("id") in still_pending_ids)
+            for sl in dd.get("slides") or []:
+                thumb = _output_url(sl.get("path"))
+                if thumb:
+                    break
+        items.append({
+            "run_id": r.id,
+            "topic": r.topic,
+            "status": r.status,
+            "format": "video" if is_video else "carousel",
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "cost_usd": r.cost_usd or 0.0,
+            "error": r.error,
+            "pending_review_count": pending_count,
+            "thumbnail_url": thumb,
+            "video_url": video_url,
+        })
+
+    return {"total": total, "limit": limit, "offset": offset, "runs": items}
+
+
 @app.get("/api/v1/runs/{run_id}")
 def get_run_status(run_id: str):
     """Mengecek status proses run, data riset, plan, dan hasil gambar desain."""
@@ -338,6 +554,20 @@ def get_run_status(run_id: str):
         plan_data = json.loads(plan_row.plan_json) if plan_row and plan_row.plan_json else None
         design_data = json.loads(design_row.result_json) if design_row and design_row.result_json else None
 
+        # Run video menyimpan hasilnya di designs.result_json dengan type="video"
+        is_video = bool(design_data and design_data.get("type") == "video")
+        video_preview = None
+        if is_video:
+            vpath = design_data.get("video_path")
+            video_preview = {
+                "ok": bool(design_data.get("ok")),
+                "url": _output_url(vpath),
+                "duration_sec": design_data.get("duration_sec", 0.0),
+                "file_size_mb": design_data.get("file_size_mb", 0.0),
+                "scenes_count": design_data.get("scenes_count", 0),
+                "issues": design_data.get("issues", []),
+            }
+
         # Ubah path lokal slides menjadi URL statis yang bisa langsung ditampilkan browser frontend
         slides_preview = []
         if design_data and "slides" in design_data:
@@ -355,6 +585,14 @@ def get_run_status(run_id: str):
         if design_data and "pending_review" in design_data:
             for pr in design_data["pending_review"]:
                 pr_copy = dict(pr)
+                # Status terkini dari library (snapshot di design bisa sudah usang
+                # kalau aset sudah di-approve/reject setelah design dibuat)
+                try:
+                    from src.tools import asset_library as _al
+                    live = _al.get_asset(pr.get("id")) if pr.get("id") is not None else None
+                    pr_copy["status"] = live["status"] if live else "missing"
+                except Exception:
+                    pr_copy["status"] = "unknown"
                 pr_p = pr.get("path")
                 if pr_p:
                     pr_obj = Path(pr_p).resolve()
@@ -369,6 +607,7 @@ def get_run_status(run_id: str):
         return {
             "run_id": run_row.id,
             "topic": run_row.topic,
+            "format": "video" if is_video or _has_video_events(session, run_id) else "carousel",
             "status": run_row.status,
             "started_at": run_row.started_at.isoformat() if run_row.started_at else None,
             "finished_at": run_row.finished_at.isoformat() if run_row.finished_at else None,
@@ -377,13 +616,14 @@ def get_run_status(run_id: str):
             "cost_usd": run_row.cost_usd or 0.0,
             "error": run_row.error,
             "plan": plan_data,
+            "video": video_preview,
             "design": {
                 "ok": design_row.ok if design_row else False,
                 "slides": slides_preview,
                 "pending_review": pending_review_preview,
                 "missing_poses": design_data.get("missing_poses", []) if design_data else [],
                 "preview_path": f"/static/output/{Path(design_row.preview_path).name}" if design_row and design_row.preview_path else None
-            } if design_row else None
+            } if design_row and not is_video else None
         }
 
 
@@ -433,6 +673,11 @@ def publish_run_to_instagram(run_id: str):
             select(Design).where(Design.run_id == run_id).order_by(desc(Design.version))
         ).first()
 
+        if design_row and json.loads(design_row.result_json or "{}").get("type") == "video":
+            raise HTTPException(
+                status_code=400,
+                detail="Publish Reels ke Instagram belum didukung. Video bisa diunduh dari preview.",
+            )
         if not plan_row or not design_row:
             raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
 
@@ -515,6 +760,71 @@ def resume_run_endpoint(run_id: str, background_tasks: BackgroundTasks):
     }
 
 
+@app.post("/api/v1/assets/{asset_id}/regenerate")
+def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
+                             background_tasks: BackgroundTasks):
+    """Buat ulang pose yang ditolak (kandidat baru, tetap perlu review manusia).
+
+    - Jika run terkait sedang menunggu (awaiting_approval/awaiting_assets): kandidat baru dibuat
+      lalu run dilanjutkan otomatis sehingga kembali ke 'awaiting_approval'.
+    - Jika tidak ada run yang menunggu: hanya membuat kandidat baru di Asset Library.
+    Proses berjalan di background (generate gambar + hapus background bisa >1 menit).
+    """
+    from src.tools import asset_library, cloudflare_pose_generator
+
+    asset = asset_library.get_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset tidak ditemukan")
+    if asset.get("status") != "rejected":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hanya pose berstatus 'rejected' yang bisa dibuat ulang (saat ini: {asset.get('status')}).",
+        )
+
+    pose = next((t for t in (asset.get("tags") or []) if t), "")
+    person_id = asset.get("person_id") or ""
+    if not pose or not person_id or not asset.get("model"):  # hanya hasil generate yang punya model
+        raise HTTPException(status_code=400, detail="Asset ini bukan pose hasil generate, tidak bisa dibuat ulang.")
+    if pose not in cloudflare_pose_generator.POSE_GUIDANCE and not req.prompt.strip():
+        raise HTTPException(status_code=400, detail=f"Pose '{pose}' belum punya arahan bawaan; isi 'prompt'.")
+    try:
+        has_reference = bool(asset_library.get_person_reference(person_id))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not has_reference:
+        raise HTTPException(status_code=400, detail=f"Foto referensi untuk '{person_id}' belum diupload.")
+    if not (config.opt("CLOUDFLARE_ACCOUNT_ID") and config.opt("CLOUDFLARE_API_TOKEN")):
+        raise HTTPException(status_code=400, detail="CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN belum diisi di .env")
+
+    run_id = req.run_id or asset.get("run_id")
+    mode = "standalone"
+    with SessionLocal() as session:
+        run_row = session.get(Run, run_id) if run_id else None
+        if req.run_id and not run_row:
+            raise HTTPException(status_code=404, detail="Run tidak ditemukan")
+        if run_row and run_row.status == "running":
+            raise HTTPException(status_code=409, detail="Run sedang diproses; tunggu sampai selesai.")
+        if run_row and run_row.status in RUN_WAITING_STATUSES:
+            run_row.status = "running"
+            run_row.error = None
+            session.commit()
+            mode = "run"
+    linked_run = run_id if mode == "run" else None
+
+    background_tasks.add_task(_execute_regenerate_task, linked_run, asset_id, pose, person_id, req.prompt)
+    return {
+        "status": "running",
+        "mode": mode,
+        "asset_id": asset_id,
+        "run_id": linked_run,
+        "message": (
+            "Membuat kandidat pose baru, lalu run dilanjutkan otomatis."
+            if mode == "run" else
+            "Membuat kandidat pose baru di Asset Library (tidak ada run yang menunggu)."
+        ),
+    }
+
+
 @app.post("/api/v1/assets/upload")
 def upload_talent_reference(
     file: UploadFile = File(...),
@@ -552,43 +862,78 @@ def upload_talent_reference(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+ASSET_STATUSES = {"pending_review", "approved", "rejected", "placeholder"}
+ASSET_STATUS_ALIASES = {"pending": "pending_review"}
+
+
+def _static_url_for(p: str) -> Optional[str]:
+    """Path lokal aset -> URL statis (output/, data/, assets/) atau None."""
+    if not p:
+        return None
+    p_obj = Path(p).resolve()
+    if not p_obj.exists():
+        return None
+    for base, prefix in (
+        (config.OUTPUT_DIR, "output"),
+        (config.ROOT / "data", "data"),
+        (config.ROOT / "assets", "assets"),
+    ):
+        base = base.resolve()
+        if p_obj.is_relative_to(base):
+            return f"/static/{prefix}/{p_obj.relative_to(base).as_posix()}"
+    return None
+
+
 @app.get("/api/v1/assets")
-def list_system_assets():
-    """Mengambil daftar asset talent / cutouts yang ada di database."""
+def list_system_assets(status: Optional[str] = None):
+    """Daftar asset talent / cutouts.
+
+    Query `status` (opsional): pending | pending_review | approved | rejected | placeholder | all.
+    `pending` adalah alias dari `pending_review` (nama status di database).
+    Respons selalu menyertakan `counts` per status (tidak terpengaruh filter) untuk badge UI.
+    """
+    from collections import Counter
     from src.tools.asset_library import list_assets
+
+    wanted = None
+    if status and status != "all":
+        wanted = ASSET_STATUS_ALIASES.get(status, status)
+        if wanted not in ASSET_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"status tidak valid: '{status}'. Gunakan salah satu dari "
+                       f"pending, {', '.join(sorted(ASSET_STATUSES))}, all.",
+            )
     try:
         raw_assets = list_assets()
+        counts = Counter(a.get("status", "approved") for a in raw_assets)
+        if wanted:
+            raw_assets = [a for a in raw_assets if a.get("status") == wanted]
         formatted = []
         for a in raw_assets:
             p = a.get("path", "")
-            web_url = None
-            if p:
-                p_obj = Path(p).resolve()
-                if p_obj.exists():
-                    if p_obj.is_relative_to(config.OUTPUT_DIR.resolve()):
-                        rel = p_obj.relative_to(config.OUTPUT_DIR.resolve())
-                        web_url = f"/static/output/{rel}"
-                    elif p_obj.is_relative_to((config.ROOT / "data").resolve()):
-                        rel = p_obj.relative_to((config.ROOT / "data").resolve())
-                        web_url = f"/static/data/{rel}"
-                    elif p_obj.is_relative_to((config.ROOT / "assets").resolve()):
-                        rel = p_obj.relative_to((config.ROOT / "assets").resolve())
-                        web_url = f"/static/assets/{rel}"
             formatted.append({
                 "id": a.get("id"),
                 "tags": a.get("tags", []),
                 "description": a.get("description", ""),
                 "status": a.get("status", "approved"),
                 "path": p,
-                "url": web_url,
+                "url": _static_url_for(p),
+                "run_id": a.get("run_id"),
+                "person_id": a.get("person_id"),
+                "kind": a.get("kind"),
                 "created_at": str(a.get("created_at", ""))
             })
+        # Terbaru di atas supaya aset yang baru perlu di-review mudah ditemukan
+        formatted.sort(key=lambda x: x["id"] or 0, reverse=True)
         return {
             "total": len(formatted),
+            "counts": {k: counts.get(k, 0) for k in sorted(ASSET_STATUSES)} | {"all": sum(counts.values())},
             "assets": formatted
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

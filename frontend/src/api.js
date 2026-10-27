@@ -13,9 +13,19 @@ export const api = {
     return res.json();
   },
 
-  getAssets: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/assets`);
+  // status: 'all' | 'pending_review' | 'approved' | 'rejected' (alias 'pending' juga diterima backend)
+  getAssets: async (status = 'all') => {
+    const qs = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
+    const res = await fetch(`${API_BASE}/api/v1/assets${qs}`);
     if (!res.ok) throw new Error('Gagal mengambil daftar asset');
+    return res.json();
+  },
+
+  getRuns: async ({ limit = 30, offset = 0, status } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (status) params.set('status', status);
+    const res = await fetch(`${API_BASE}/api/v1/runs?${params}`);
+    if (!res.ok) throw new Error('Gagal mengambil riwayat run');
     return res.json();
   },
 
@@ -112,6 +122,20 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(data.detail || `Gagal ${status} aset`);
+    }
+    return data;
+  },
+
+  // Buat ulang pose yang ditolak. Kalau run terkait sedang menunggu, backend melanjutkannya otomatis.
+  regeneratePose: async (assetId, { runId = null, prompt = '' } = {}) => {
+    const res = await fetch(`${API_BASE}/api/v1/assets/${assetId}/regenerate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: runId, prompt })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || 'Gagal membuat ulang pose');
     }
     return data;
   },

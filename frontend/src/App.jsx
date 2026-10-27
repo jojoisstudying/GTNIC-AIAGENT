@@ -23,9 +23,34 @@ import {
   Phone,
   Palette,
   Check,
-  UserCheck
+  UserCheck,
+  Download,
+  Film,
+  History
 } from 'lucide-react';
 import { api } from './api';
+
+// started_at dari backend (SQLite) bisa tanpa suffix timezone; nilainya UTC
+const fmtTime = (iso) => {
+  if (!iso) return '-';
+  const withTz = /(Z|[+-]\d\d:?\d\d)$/i.test(iso) ? iso : `${iso}Z`;
+  return new Date(withTz).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const RUN_STATUS_STYLE = {
+  ok: 'bg-emerald-950 text-emerald-400 border-emerald-800',
+  running: 'bg-amber-950 text-amber-400 border-amber-800 animate-pulse',
+  awaiting_approval: 'bg-amber-950 text-amber-300 border-amber-700',
+  awaiting_assets: 'bg-orange-950 text-orange-300 border-orange-800',
+  failed: 'bg-red-950 text-red-400 border-red-800'
+};
+
+const ASSET_FILTERS = [
+  { key: 'pending_review', label: 'Menunggu Review' },
+  { key: 'approved', label: 'Disetujui' },
+  { key: 'rejected', label: 'Ditolak' },
+  { key: 'all', label: 'Semua' }
+];
 
 export default function App() {
   // Navigation / Tabs: 'generator' | 'assets' | 'layouts' | 'brand_settings'
@@ -52,6 +77,15 @@ export default function App() {
   const [brand, setBrand] = useState(null);
   const [layouts, setLayouts] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [assetFilter, setAssetFilter] = useState('all');
+  const [assetCounts, setAssetCounts] = useState({});
+  const assetFilterTouched = useRef(false);
+  const assetsInitialized = useRef(false);
+
+  // Riwayat run
+  const [runs, setRuns] = useState([]);
+  const [runsFilter, setRunsFilter] = useState('all'); // 'all' | 'awaiting_approval'
+  const [pendingRunsCount, setPendingRunsCount] = useState(0);
 
   // Brand Form states
   const [brandForm, setBrandForm] = useState({
@@ -89,16 +123,49 @@ export default function App() {
     }).catch(console.error);
   };
 
-  const fetchAssets = () => {
-    api.getAssets().then(res => setAssets(res.assets || [])).catch(console.error);
+  const fetchAssets = (filter = assetFilter) => {
+    api.getAssets(filter).then(res => {
+      setAssets(res.assets || []);
+      setAssetCounts(res.counts || {});
+      // Pertama kali dibuka: kalau ada yang menunggu review, langsung tampilkan itu
+      if (!assetsInitialized.current) {
+        assetsInitialized.current = true;
+        if (!assetFilterTouched.current && filter === 'all' && (res.counts?.pending_review || 0) > 0) {
+          setAssetFilter('pending_review');
+        }
+      }
+    }).catch(console.error);
   };
 
-  // Inisialisasi data awal (Brand, Layouts, Assets)
+  const changeAssetFilter = (key) => {
+    assetFilterTouched.current = true;
+    setAssetFilter(key);
+  };
+
+  const fetchRuns = () => {
+    api.getRuns({ limit: 50, status: runsFilter === 'awaiting_approval' ? 'awaiting_approval' : undefined })
+      .then(res => setRuns(res.runs || []))
+      .catch(console.error);
+    api.getRuns({ limit: 1, status: 'awaiting_approval' })
+      .then(res => setPendingRunsCount(res.total || 0))
+      .catch(console.error);
+  };
+
+  // Inisialisasi data awal (Brand, Layouts)
   useEffect(() => {
     fetchBrand();
     api.getLayouts().then(res => setLayouts(res.layouts || [])).catch(console.error);
-    fetchAssets();
   }, []);
+
+  // Asset list mengikuti filter (fetch awal juga lewat sini)
+  useEffect(() => {
+    fetchAssets(assetFilter);
+  }, [assetFilter]);
+
+  // Riwayat run: muat ulang saat filter berubah, tab dibuka, atau sebuah run selesai
+  useEffect(() => {
+    fetchRuns();
+  }, [isRunning, runsFilter, activeTab]);
 
   // Polling status run & events saat isRunning == true
   useEffect(() => {
@@ -115,7 +182,7 @@ export default function App() {
         setRunData(statusRes);
         setEvents(eventsRes.events || []);
 
-        if (statusRes.status === 'ok' || statusRes.status === 'failed' || statusRes.status === 'awaiting_approval') {
+        if (['ok', 'failed', 'awaiting_approval', 'awaiting_assets'].includes(statusRes.status)) {
           setIsRunning(false);
           clearInterval(interval);
         }
@@ -190,30 +257,99 @@ export default function App() {
 
   // Save Brand Configuration
   const [approvingAssetId, setApprovingAssetId] = useState(null);
+  const [regeneratingId, setRegeneratingId] = useState(null);
   const [resumingRun, setResumingRun] = useState(false);
 
-  // Approve Generated Pose Asset & Resume Run
-  const handleApproveAsset = async (assetId, decision = 'approved') => {
+  // Muat ulang status & event satu run (dipakai saat membuka run lama / setelah review)
+  const refreshRun = async (runId) => {
+    const [statusRes, eventsRes] = await Promise.all([api.getRunStatus(runId), api.getRunEvents(runId)]);
+    setRunData(statusRes);
+    setEvents(eventsRes.events || []);
+    return statusRes;
+  };
+
+  // Buka run lama dari riwayat / daftar aset (termasuk yang masih awaiting_approval)
+  const openRun = async (runId, format, status) => {
+    setCurrentRunId(runId);
+    setRunData(null);
+    setEvents([]);
+    setCurrentSlideIndex(0);
+    setPublishResult(null);
+    if (format) setFormatType(format);
+    setIsRunning(status === 'running');
+    setActiveTab('generator');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      const fresh = await refreshRun(runId); // effect polling tidak jalan ulang kalau run_id-nya sama
+      if (fresh.status === 'running') setIsRunning(true);
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: `Gagal membuka run: ${err.message}` });
+    }
+  };
+
+  // Approve / reject pose. Run dilanjutkan otomatis hanya jika SEMUA pose run itu sudah
+  // diputuskan dan tidak ada yang ditolak (reject butuh regenerate, lihat #10).
+  const handleApproveAsset = async (assetId, decision = 'approved', assetRunId = null) => {
     setApprovingAssetId(assetId);
     try {
       await api.reviewAsset(assetId, decision);
-      setStatusMessage({
-        type: 'success',
-        text: `Asset pose ID ${assetId} berhasil di-${decision}! Melanjutkan rendering carousel...`
-      });
       fetchAssets();
+      fetchRuns();
 
-      // Jika ada currentRunId yang sedang awaiting_approval, auto-resume
-      if (currentRunId && (runData?.status === 'awaiting_approval' || runData?.status === 'awaiting_assets')) {
-        setResumingRun(true);
-        await api.resumeRun(currentRunId);
-        setIsRunning(true);
+      const targetRunId = assetRunId || currentRunId;
+      const isCurrent = targetRunId && targetRunId === currentRunId;
+      let text = `Asset pose ID ${assetId} berhasil di-${decision === 'approved' ? 'setujui' : 'tolak'}.`;
+
+      if (isCurrent) {
+        const fresh = await refreshRun(targetRunId);
+        const items = fresh.design?.pending_review || [];
+        const waiting = ['awaiting_approval', 'awaiting_assets'].includes(fresh.status);
+        const stillPending = items.some(i => i.status === 'pending_review');
+        const anyRejected = items.some(i => i.status === 'rejected');
+        if (waiting && items.length > 0 && !stillPending && !anyRejected) {
+          setResumingRun(true);
+          await api.resumeRun(targetRunId);
+          setIsRunning(true);
+          text += ' Semua pose sudah disetujui, melanjutkan rendering...';
+        } else if (stillPending) {
+          text += ` Masih ada ${items.filter(i => i.status === 'pending_review').length} pose yang menunggu keputusan.`;
+        } else if (anyRejected) {
+          text += ' Ada pose yang ditolak, run belum bisa dilanjutkan.';
+        }
+      } else if (targetRunId) {
+        text += ' Buka run terkait dari tab Riwayat Run untuk melanjutkannya.';
       }
+      setStatusMessage({ type: 'success', text });
     } catch (err) {
       setStatusMessage({ type: 'error', text: `Gagal review aset: ${err.message}` });
     } finally {
       setApprovingAssetId(null);
       setResumingRun(false);
+    }
+  };
+
+  // Buat ulang pose yang ditolak. Jika run terkait menunggu, backend generate lalu resume otomatis
+  const handleRegenerate = async (assetId, assetRunId = null) => {
+    setRegeneratingId(assetId);
+    try {
+      const targetRunId = assetRunId || currentRunId;
+      const res = await api.regeneratePose(assetId, { runId: targetRunId });
+      fetchAssets();
+      fetchRuns();
+      if (res.mode === 'run' && res.run_id === currentRunId) {
+        setIsRunning(true); // polling jalan lagi sampai run kembali ke awaiting_approval
+        await refreshRun(res.run_id);
+      }
+      setStatusMessage({
+        type: 'success',
+        text: res.mode === 'run'
+          ? 'Membuat kandidat pose baru... run akan kembali ke "Menunggu Approval" setelah selesai (bisa 1–2 menit).'
+          : 'Membuat kandidat pose baru di Asset Library. Muat ulang daftar aset beberapa saat lagi untuk meninjaunya.'
+      });
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: `Gagal membuat ulang pose: ${err.message}` });
+    } finally {
+      setRegeneratingId(null);
     }
   };
 
@@ -279,6 +415,12 @@ export default function App() {
   };
 
   const slides = runData?.design?.slides || [];
+  const video = runData?.video || null;
+  // Format run aktif: pakai data dari server kalau sudah ada, fallback ke pilihan form saat baru dipicu
+  const isVideoRun = (runData?.format ?? formatType) === 'video';
+  const runFailed = runData?.status === 'failed';
+  const pendingItems = runData?.design?.pending_review || [];
+  const pendingLeft = pendingItems.some(p => (p.status ? p.status === 'pending_review' : true));
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -323,7 +465,25 @@ export default function App() {
               activeTab === 'assets' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <ImageIcon className="w-3.5 h-3.5" /> Asset Library ({assets.length})
+            <ImageIcon className="w-3.5 h-3.5" /> Asset Library ({assetCounts.all ?? assets.length})
+            {(assetCounts.pending_review || 0) > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-bold leading-none">
+                {assetCounts.pending_review}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('runs')}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition ${
+              activeTab === 'runs' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" /> Riwayat Run
+            {pendingRunsCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-bold leading-none">
+                {pendingRunsCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('layouts')}
@@ -519,6 +679,25 @@ export default function App() {
                                     {pr.qc?.ok ? 'QC OK' : 'QC GAGAL'}
                                   </span>
                                 </div>
+                                {pr.status && pr.status !== 'pending_review' ? (
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-mono ${
+                                      pr.status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                        : 'bg-red-950 text-red-400 border border-red-800'
+                                    }`}>
+                                      {pr.status === 'approved' ? 'Disetujui' : pr.status === 'rejected' ? 'Ditolak' : pr.status}
+                                    </span>
+                                    {pr.status === 'rejected' && (
+                                      <button
+                                        onClick={() => handleRegenerate(pr.id, runData?.run_id)}
+                                        disabled={regeneratingId === pr.id || resumingRun}
+                                        className="px-2.5 py-1 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white text-[11px] font-semibold rounded flex items-center gap-1 transition"
+                                      >
+                                        <RefreshCw className={`w-3 h-3 ${regeneratingId === pr.id ? 'animate-spin' : ''}`} /> Buat Ulang
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
                                 <div className="flex gap-2 pt-1">
                                   <button
                                     onClick={() => handleApproveAsset(pr.id, 'approved')}
@@ -535,6 +714,7 @@ export default function App() {
                                     Tolak
                                   </button>
                                 </div>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -543,8 +723,9 @@ export default function App() {
                         <div className="pt-2 flex justify-end">
                           <button
                             onClick={handleResumeRun}
-                            disabled={resumingRun}
-                            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                            disabled={resumingRun || pendingLeft}
+                            title={pendingLeft ? 'Putuskan semua pose terlebih dahulu' : undefined}
+                            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-semibold flex items-center gap-1.5 transition shadow"
                           >
                             {resumingRun ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                             Lanjutkan Pipeline (Resume)
@@ -553,7 +734,67 @@ export default function App() {
                       </div>
                     )}
 
-                    {slides.length > 0 ? (
+                    {/* BANNER AWAITING ASSETS: pose belum tersedia (mis. regenerate gagal) */}
+                    {runData?.status === 'awaiting_assets' && (
+                      <div className="w-full mb-4 p-4 bg-orange-950/30 border border-orange-700/60 rounded-xl space-y-2">
+                        <span className="text-xs font-bold text-orange-300 flex items-center gap-1.5">
+                          <AlertCircle className="w-4 h-4" />
+                          Pose belum tersedia
+                        </span>
+                        <p className="text-xs text-gray-300">
+                          Slide dirender tanpa foto untuk pose: <strong>{(runData.design?.missing_poses || []).join(', ') || '-'}</strong>.
+                          {' '}Lanjutkan pipeline untuk mencoba membuat pose baru.
+                        </p>
+                        {runData.error && (
+                          <p className="text-[11px] text-orange-200/80 break-words">{runData.error}</p>
+                        )}
+                        <div className="flex justify-end">
+                          <button
+                            onClick={handleResumeRun}
+                            disabled={resumingRun}
+                            className="px-4 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition"
+                          >
+                            {resumingRun ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                            Lanjutkan Pipeline (Resume)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {video?.url ? (
+                      <div className="w-full max-w-[300px] flex flex-col items-center space-y-3">
+                        {/* Video Reels (9:16 / 1080x1920) */}
+                        <div className="relative w-full aspect-[9/16] bg-gray-950 rounded-lg overflow-hidden border border-gray-800 shadow-2xl">
+                          <video
+                            key={video.url}
+                            src={video.url}
+                            controls
+                            playsInline
+                            loop
+                            preload="metadata"
+                            className="w-full h-full object-contain bg-black"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between w-full text-[11px] text-gray-400 font-mono">
+                          <span className="flex items-center gap-1.5">
+                            <Film className="w-3.5 h-3.5 text-indigo-400" />
+                            {video.scenes_count} scene • {Number(video.duration_sec).toFixed(1)}s • {Number(video.file_size_mb).toFixed(2)} MB
+                          </span>
+                          <a
+                            href={video.url}
+                            download
+                            className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 underline"
+                          >
+                            <Download className="w-3.5 h-3.5" /> Unduh MP4
+                          </a>
+                        </div>
+                        {video.issues?.length > 0 && (
+                          <ul className="w-full text-[10.5px] text-amber-300 bg-amber-950/30 border border-amber-800/50 rounded p-2 list-disc list-inside space-y-0.5">
+                            {video.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    ) : slides.length > 0 ? (
                       <div className="w-full max-w-[340px] flex flex-col items-center space-y-3">
                         {/* Slide Display (Aspect 4:5 1080x1350) */}
                         <div className="relative w-full aspect-[4/5] bg-gray-950 rounded-lg overflow-hidden border border-gray-800 shadow-2xl">
@@ -588,10 +829,24 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+                    ) : runFailed ? (
+                      <div className="w-full max-w-sm flex flex-col items-center text-center p-6 space-y-3 bg-red-950/20 border border-red-800/50 rounded-xl">
+                        <AlertCircle className="w-8 h-8 text-red-400" />
+                        <p className="text-sm text-red-300 font-semibold">
+                          {isVideoRun ? 'Pembuatan video gagal' : 'Pembuatan konten gagal'}
+                        </p>
+                        <p className="text-xs text-red-200/80 break-words max-w-xs">
+                          {runData.error || video?.issues?.join('; ') || 'Terjadi kesalahan. Lihat log agen di sebelah kanan untuk detailnya.'}
+                        </p>
+                      </div>
                     ) : isRunning ? (
                       <div className="flex flex-col items-center justify-center text-center p-8 space-y-3">
-                        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-                        <p className="text-sm text-gray-300 font-medium">Agen sedang meriset & merender visual...</p>
+                        <RefreshCw className={`w-8 h-8 animate-spin ${isVideoRun ? 'text-indigo-400' : 'text-emerald-400'}`} />
+                        <p className="text-sm text-gray-300 font-medium">
+                          {isVideoRun
+                            ? 'Agen sedang menulis naskah, voiceover, dan merakit video...'
+                            : 'Agen sedang meriset & merender visual...'}
+                        </p>
                         <p className="text-xs text-gray-500 max-w-xs">Perhatikan jendela "Agent Reasoning" di sebelah kanan untuk melihat proses berpikir agen.</p>
                       </div>
                     ) : (
@@ -602,6 +857,25 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
+                  {/* Info biaya & status publish untuk run video (belum punya plan/caption) */}
+                  {isVideoRun && runData && !runData.plan && (
+                    <div className="p-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between gap-3">
+                      <div className="text-[11px] text-gray-400 flex items-center gap-2">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                        Biaya: <strong className="text-emerald-400 font-mono">${(runData.cost_usd ?? 0).toFixed(4)}</strong>
+                        <span className="text-gray-600">|</span>
+                        Token: <span className="font-mono text-gray-300">{(runData.tokens_in ?? 0) + (runData.tokens_out ?? 0)}</span>
+                      </div>
+                      <button
+                        disabled
+                        title="Publish Reels ke Instagram belum tersedia"
+                        className="px-4 py-2 bg-gray-800 text-gray-600 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed"
+                      >
+                        <Send className="w-3.5 h-3.5" /> Publish Reels (segera hadir)
+                      </button>
+                    </div>
+                  )}
 
                   {/* Caption & Publish Action Bar */}
                   {runData?.plan && (
@@ -1002,10 +1276,37 @@ export default function App() {
               </p>
             </div>
 
+            {/* Filter status aset */}
+            <div className="flex flex-wrap items-center gap-2">
+              {ASSET_FILTERS.map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => changeAssetFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${
+                    assetFilter === f.key
+                      ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  {f.label}
+                  <span className={`px-1.5 rounded-full text-[10px] font-mono ${
+                    f.key === 'pending_review' && (assetCounts.pending_review || 0) > 0
+                      ? 'bg-amber-500 text-black font-bold' : 'bg-gray-800 text-gray-300'
+                  }`}>
+                    {assetCounts[f.key] ?? 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+
             {assets.length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center text-gray-500">
                 <ImageIcon className="w-10 h-10 opacity-30 mx-auto mb-2" />
-                <p className="text-sm">Pustaka aset aktif sedang kosong (sudah siap diinput baru).</p>
+                <p className="text-sm">
+                  {assetFilter === 'pending_review'
+                    ? 'Tidak ada aset yang menunggu review.'
+                    : 'Tidak ada aset pada filter ini.'}
+                </p>
                 <p className="text-xs text-gray-400 mt-1">
                   Buka tab <strong>Brand & Asset Setup</strong> untuk mengupload foto orang mentahan referensi.
                 </p>
@@ -1022,8 +1323,11 @@ export default function App() {
                       )}
                     </div>
                     <div>
-                      <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider block">
-                        {asset.status}
+                      <span className={`text-[10px] font-semibold uppercase tracking-wider block ${
+                        asset.status === 'pending_review' ? 'text-amber-400'
+                          : asset.status === 'rejected' ? 'text-red-400' : 'text-emerald-400'
+                      }`}>
+                        {asset.status === 'pending_review' ? 'menunggu review' : asset.status}
                       </span>
                       <p className="text-xs text-gray-200 font-medium truncate">{asset.description || 'Asset ' + asset.id}</p>
                       <div className="flex flex-wrap gap-1 mt-1">
@@ -1034,7 +1338,142 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                    {asset.status === 'pending_review' && (
+                      <div className="flex gap-1.5 pt-1">
+                        <button
+                          onClick={() => handleApproveAsset(asset.id, 'approved', asset.run_id)}
+                          disabled={approvingAssetId === asset.id}
+                          className="flex-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[11px] font-semibold rounded flex items-center justify-center gap-1 transition"
+                        >
+                          <Check className="w-3 h-3" /> Setujui
+                        </button>
+                        <button
+                          onClick={() => handleApproveAsset(asset.id, 'rejected', asset.run_id)}
+                          disabled={approvingAssetId === asset.id}
+                          className="flex-1 px-2 py-1 bg-gray-800 hover:bg-red-900/60 text-gray-300 hover:text-red-300 disabled:opacity-50 text-[11px] font-semibold rounded transition"
+                        >
+                          Tolak
+                        </button>
+                      </div>
+                    )}
+                    {asset.status === 'rejected' && asset.person_id && (
+                      <button
+                        onClick={() => handleRegenerate(asset.id, asset.run_id)}
+                        disabled={regeneratingId === asset.id}
+                        className="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white text-[11px] font-semibold rounded flex items-center justify-center gap-1 transition"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${regeneratingId === asset.id ? 'animate-spin' : ''}`} /> Buat Ulang Pose
+                      </button>
+                    )}
+                    {asset.run_id && (
+                      <button
+                        onClick={() => openRun(asset.run_id)}
+                        className="text-[10px] text-indigo-300 hover:text-indigo-200 underline text-left"
+                      >
+                        Buka run terkait
+                      </button>
+                    )}
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: RIWAYAT RUN */}
+        {activeTab === 'runs' && (
+          <div className="space-y-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h2 className="text-base font-bold text-white flex items-center gap-2 mb-1">
+                <History className="w-4 h-4 text-emerald-400" />
+                Riwayat Run
+              </h2>
+              <p className="text-xs text-gray-400">
+                Semua run terbaru. Klik sebuah run untuk membuka preview, log, dan melanjutkan yang menunggu persetujuan.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { key: 'all', label: 'Semua' },
+                { key: 'awaiting_approval', label: 'Menunggu Approval' }
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setRunsFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${
+                    runsFilter === f.key
+                      ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  {f.label}
+                  {f.key === 'awaiting_approval' && pendingRunsCount > 0 && (
+                    <span className="px-1.5 rounded-full text-[10px] font-mono bg-amber-500 text-black font-bold">
+                      {pendingRunsCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+              <button
+                onClick={fetchRuns}
+                className="ml-auto p-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-300 transition"
+                title="Muat ulang"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {runs.length === 0 ? (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center text-gray-500">
+                <Clock className="w-10 h-10 opacity-30 mx-auto mb-2" />
+                <p className="text-sm">
+                  {runsFilter === 'awaiting_approval' ? 'Tidak ada run yang menunggu approval.' : 'Belum ada run.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {runs.map(r => (
+                  <button
+                    key={r.run_id}
+                    onClick={() => openRun(r.run_id, r.format, r.status)}
+                    className={`text-left bg-gray-900 border rounded-lg p-3 flex gap-3 hover:border-emerald-600/60 transition ${
+                      r.run_id === currentRunId ? 'border-emerald-700' : 'border-gray-800'
+                    }`}
+                  >
+                    <div className="w-14 h-[70px] shrink-0 bg-black/60 rounded border border-gray-800 overflow-hidden flex items-center justify-center">
+                      {r.thumbnail_url ? (
+                        <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                      ) : r.format === 'video' ? (
+                        <Film className="w-5 h-5 text-indigo-400/70" />
+                      ) : (
+                        <Layers className="w-5 h-5 text-gray-700" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <p className="text-xs font-semibold text-white truncate">{r.topic}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono uppercase ${RUN_STATUS_STYLE[r.status] || 'bg-gray-900 text-gray-400 border-gray-700'}`}>
+                          {r.status}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 flex items-center gap-1">
+                          {r.format === 'video' ? <Film className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                          {r.format === 'video' ? 'Reels' : 'Carousel'}
+                        </span>
+                        {r.pending_review_count > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-black font-bold">
+                            {r.pending_review_count} pose menunggu
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-500 font-mono">
+                        {fmtTime(r.started_at)} • ${Number(r.cost_usd || 0).toFixed(4)}
+                      </p>
+                      {r.status === 'failed' && r.error && (
+                        <p className="text-[10px] text-red-400 truncate">{r.error}</p>
+                      )}
+                    </div>
+                  </button>
                 ))}
               </div>
             )}
