@@ -123,7 +123,7 @@ def _execute_resume_task(run_id: str):
     ctx.llm.cost_usd = run.cost_usd or 0.0
 
     try:
-        design_result = designer.run(plan, brand, config.OUTPUT_DIR / "slides", ctx=ctx)
+        design_result = designer.run(plan, brand, config.OUTPUT_DIR / "runs" / run_id / "slides", ctx=ctx)
         with SessionLocal() as session:
             design_version = session.scalar(
                 select(func.max(Design.version)).where(Design.run_id == run_id)
@@ -577,7 +577,7 @@ def get_run_status(run_id: str):
                     # Ambil relative path terhadap output/
                     rel_path = Path(local_path).relative_to(config.OUTPUT_DIR) if str(config.OUTPUT_DIR) in str(local_path) else Path(local_path).name
                     s_copy = dict(s)
-                    s_copy["image_url"] = f"/static/output/{rel_path}"
+                    s_copy["image_url"] = f"/static/output/{Path(rel_path).as_posix()}?v={design_row.id}"
                     slides_preview.append(s_copy)
 
         # Eksekusi pending_review format url
@@ -622,7 +622,7 @@ def get_run_status(run_id: str):
                 "slides": slides_preview,
                 "pending_review": pending_review_preview,
                 "missing_poses": design_data.get("missing_poses", []) if design_data else [],
-                "preview_path": f"/static/output/{Path(design_row.preview_path).name}" if design_row and design_row.preview_path else None
+                "preview_path": (f"{_output_url(design_row.preview_path)}?v={design_row.id}" if _output_url(design_row.preview_path) else None) if design_row and design_row.preview_path else None
             } if design_row and not is_video else None
         }
 

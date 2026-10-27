@@ -110,7 +110,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             return out
 
         if include_design and out.get("plan"):
-            design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "slides", ctx=ctx)
+            design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
             design_version = session.scalar(select(func.max(Design.version)).where(Design.run_id == ctx.run_id)) or 0
             session.add(Design(run_id=ctx.run_id, plan_id=plan_row.id, version=design_version + 1,
                                ok=bool(design_result.get("ok")),

@@ -65,7 +65,7 @@ def main(argv: list[str]) -> int:
         ctx.llm.cost_usd = run.cost_usd
 
         try:
-            design_result = designer.run(plan, brand, config.OUTPUT_DIR / "slides", ctx=ctx)
+            design_result = designer.run(plan, brand, config.OUTPUT_DIR / "runs" / run_id / "slides", ctx=ctx)
 
             # Save design version
             design_version = session.execute(

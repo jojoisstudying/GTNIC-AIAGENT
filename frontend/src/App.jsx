@@ -171,6 +171,7 @@ export default function App() {
   useEffect(() => {
     if (!currentRunId) return;
 
+    let cancelled = false;
     let interval = null;
     const poll = async () => {
       try {
@@ -187,7 +188,7 @@ export default function App() {
           clearInterval(interval);
         }
       } catch (err) {
-        console.error('Polling error:', err);
+        if (!cancelled) console.error('Polling error:', err);
       }
     };
 
@@ -197,6 +198,7 @@ export default function App() {
     }
 
     return () => {
+      cancelled = true;
       if (interval) clearInterval(interval);
     };
   }, [currentRunId, isRunning]);

@@ -43,7 +43,7 @@ def main() -> int:
         ctx = create_run_context(saved.get("topic", "unknown"), brand)
 
     try:
-        res = designer.run(saved["plan"], brand, config.OUTPUT_DIR / "slides", ctx=ctx)
+        res = designer.run(saved["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
 
         print("\n===== HASIL DESIGNER (AGENT 3) =====")
         for m in res["slides"]:

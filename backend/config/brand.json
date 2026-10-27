@@ -24,18 +24,18 @@
     "tangan_disilang"
   ],
   "colors": {
-    "primary": "#0f172a",
-    "secondary": "#f8fafc",
-    "accent": "#10b981",
+    "primary": "#1a5fb4",
+    "secondary": "#c061cb",
+    "accent": "#f5c211",
     "text_on_primary": "#ffffff"
   },
   "font_path": "assets/fonts/DejaVuSans-Bold.ttf",
   "logo_path": "assets/logo.png",
   "tokens": {
-    "bg": "#0f172a",
-    "light_bg": "#f8fafc",
+    "bg": "#1a5fb4",
+    "light_bg": "#c061cb",
     "fg": "#ffffff",
-    "accent": "#10b981"
+    "accent": "#f5c211"
   },
   "fonts": {
     "display": {
