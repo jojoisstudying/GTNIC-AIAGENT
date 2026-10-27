@@ -178,7 +178,7 @@ export default function App() {
           api.getRunStatus(currentRunId),
           api.getRunEvents(currentRunId)
         ]);
-
+        if (cancelled) return;
         setRunData(statusRes);
         setEvents(eventsRes.events || []);
 
@@ -211,6 +211,7 @@ export default function App() {
     e.preventDefault();
     if (!topic.trim()) return;
 
+    setCurrentRunId(null); 
     setIsRunning(true);
     setRunData(null);
     setEvents([]);
