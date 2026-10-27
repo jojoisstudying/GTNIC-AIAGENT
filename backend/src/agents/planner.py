@@ -69,7 +69,7 @@ Buat rencana SATU post Instagram dengan aturan berikut:
 - Setiap slide: headline maks 8 kata, subtext maks 22 kata. Untuk slide content, subtext berisi penjelasan substantif (idealnya 8-22 kata).
 - pose_tags hanya dari available_poses. Jika butuh pose lain, isi new_pose_request dan pakai pose terdekat.
 - KEJUJURAN: dilarang membuat angka/statistik yang tidak ada di riset/brand/topik. DILARANG janji hasil atau klaim kesehatan (mis. "mengurangi kelelahan", "meningkatkan produktivitas", "terbukti"). Tulis sebagai SARAN PRAKTIS ("Coba...", "Biasakan...", "Bisa dimulai dengan..."), bukan janji hasil.
-- research_used: hanya URL yang ada di daftar "sources" riset. Jangan mengarang URL.
+- research_used: hanya URL yang tertulis di HASIL RISET (sources, source_url, source_urls). Salin persis, jangan mengarang URL.
 - caption: kalimat pertama hook, isi singkat, lalu ajakan bertindak. Sesuai tone brand, tanpa janji hasil.
 - hashtags: 3-8 buah, diawali #.
 - schedule.slots: ambil waktu HANYA dari posting_time riset (tulis persis sebagaimana di riset). Waktu lain yang kamu usulkan sendiri boleh untuk A/B test, tapi akan diberi label "asumsi". ab_test: jelaskan perbandingan antar slot.
@@ -783,6 +783,29 @@ def _unsupported_numbers(text: str, blob: str, topic: str = "") -> list[str]:
     return [n for n in dict.fromkeys(nums) if n not in combined_blob]
 
 
+def _research_urls(research: dict) -> set[str]:
+    """Semua URL yang benar-benar ada di hasil riset (sources, source_url, source_urls, facts, dst).
+
+    Model sering mengutip URL dari posting_time.source_urls / trending_formats[].source_url
+    yang tidak ikut masuk ke daftar `sources` tingkat atas; itu tetap URL asli, bukan karangan.
+    """
+    found: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, str):
+            for m in re.findall(r"https?://[^\s\"'<>)\]]+", node):
+                found.add(m.rstrip(".,;/"))
+        elif isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+
+    walk(research)
+    return found
+
+
 def validate(plan: dict, blob: str, research: dict, topic: str = "", *, history: list[dict] | None = None,
              approved: dict | None = None) -> list[str]:
     issues = []
@@ -855,8 +878,8 @@ def validate(plan: dict, blob: str, research: dict, topic: str = "", *, history:
     if not sched.get("ab_test"):
         issues.append("schedule.ab_test kosong")
 
-    valid_urls = set(research.get("sources", []))
-    fake = [u for u in plan.get("research_used", []) if u not in valid_urls]
+    valid_urls = _research_urls(research)
+    fake = [u for u in plan.get("research_used", []) if str(u).rstrip(".,;/") not in valid_urls]
     if fake:
         issues.append(f"research_used berisi URL yang tidak ada di sources riset: {fake}")
 

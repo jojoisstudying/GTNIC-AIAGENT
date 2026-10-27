@@ -27,13 +27,29 @@ class VideoPipeline:
         broll_fetcher: Optional[BRollFetcher] = None,
         context: Optional[RunContext] = None,
     ):
-        self.scriptwriter = scriptwriter or VideoScriptwriter()
+        # Kalau ada RunContext, pakai LLMClient milik run supaya token & cost
+        # scriptwriter ikut terakumulasi di ctx.llm (dan tersimpan ke tabel runs).
+        if scriptwriter is None:
+            scriptwriter = VideoScriptwriter(llm_client=context.llm if context else None)
+        self.scriptwriter = scriptwriter
         self.broll_fetcher = broll_fetcher or BRollFetcher()
         self.ctx = context
 
-    def _emit(self, event_type: str, data: Dict[str, Any]) -> None:
+    def _emit(
+        self,
+        name: str,
+        detail: Optional[Dict[str, Any]] = None,
+        *,
+        kind: str = "info",
+        status: str = "ok",
+    ) -> None:
+        """Emit event sesuai signature RunContext.emit(kind, name, **fields).
+
+        Payload dimasukkan ke `detail` (bukan ke `name`) supaya kolom name tetap
+        bersih dan detail muncul utuh di panel event frontend.
+        """
         if self.ctx and hasattr(self.ctx, "emit"):
-            self.ctx.emit(event_type, data)
+            self.ctx.emit(kind, name, step="video", status=status, detail=detail or {})
 
     async def run_pipeline(
         self,
@@ -135,7 +151,7 @@ class VideoPipeline:
             "elapsed_pipeline_sec": round(elapsed, 2),
             "file_size_mb": qc_result.file_size_mb,
             "issues": qc_result.issues,
-        })
+        }, status="ok" if qc_result.ok else "failed")
 
         return qc_result
 
