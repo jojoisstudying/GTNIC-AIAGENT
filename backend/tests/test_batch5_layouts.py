@@ -2,10 +2,10 @@
 import json
 from pathlib import Path
 
-from src.agents import planner
-from src.layouts import registry
-from src.layouts.models import validate_content
-from src.render.assemble import emph_html
+from src.carousel.agents import planner
+from src.carousel.layouts import registry
+from src.carousel.layouts.models import validate_content
+from src.carousel.render.assemble import emph_html
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = json.loads((ROOT / "config" / "brand.json").read_text(encoding="utf-8"))

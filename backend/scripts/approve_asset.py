@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 
-from src.tools import asset_library, cloudflare_pose_generator
+from src.carousel.tools import asset_library, cloudflare_pose_generator
 
 
 def main() -> None:

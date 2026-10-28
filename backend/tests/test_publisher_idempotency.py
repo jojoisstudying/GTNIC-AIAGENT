@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.agents import publisher
+from src.carousel.agents import publisher
 from src.core.db import Base, Publication
 
 
@@ -20,9 +20,9 @@ def test_publish_creates_intent_and_published(monkeypatch, test_db):
     session = test_db()
 
     # Mock hosting and instagram
-    monkeypatch.setattr("src.tools.hosting.upload_jpeg", lambda p, http=None: f"https://cdn.example.com/{p}")
-    monkeypatch.setattr("src.tools.instagram.publish_carousel", lambda urls, cap, ctx=None: "ig_media_123")
-    monkeypatch.setattr("src.tools.instagram.get_media_metrics", lambda mid, ctx=None: {"permalink": "https://instagr.am/p/123"})
+    monkeypatch.setattr("src.carousel.tools.hosting.upload_jpeg", lambda p, http=None: f"https://cdn.example.com/{p}")
+    monkeypatch.setattr("src.carousel.tools.instagram.publish_carousel", lambda urls, cap, ctx=None: "ig_media_123")
+    monkeypatch.setattr("src.carousel.tools.instagram.get_media_metrics", lambda mid, ctx=None: {"permalink": "https://instagr.am/p/123"})
 
     class MockContext:
         def __init__(self, s):
@@ -80,10 +80,10 @@ def test_publish_blocks_when_pending_intent_exists(monkeypatch, test_db):
 def test_publish_records_failure_on_exception(monkeypatch, test_db):
     session = test_db()
 
-    monkeypatch.setattr("src.tools.hosting.upload_jpeg", lambda p, http=None: "https://cdn.example.com/s.jpg")
+    monkeypatch.setattr("src.carousel.tools.hosting.upload_jpeg", lambda p, http=None: "https://cdn.example.com/s.jpg")
     def fail_publish(*args, **kwargs):
         raise RuntimeError("Instagram API Network Error")
-    monkeypatch.setattr("src.tools.instagram.publish_image", fail_publish)
+    monkeypatch.setattr("src.carousel.tools.instagram.publish_image", fail_publish)
 
     class MockContext:
         def __init__(self, s):

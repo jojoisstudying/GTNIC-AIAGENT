@@ -1,5 +1,5 @@
 """Lihat performa post terakhir (loop feedback): python -m scripts.run_metrics"""
-from src.tools import instagram
+from src.carousel.tools import instagram
 
 r = instagram.get_my_recent_performance()
 if r.get("error"):

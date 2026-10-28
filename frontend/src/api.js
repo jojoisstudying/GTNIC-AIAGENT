@@ -39,11 +39,11 @@ export const api = {
     return res.json();
   },
 
-  generateVideo: async (topic, targetDuration = 30) => {
+  generateVideo: async (topic, targetDuration = 30, fresh = true) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/generate-video`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, target_duration: targetDuration })
+      body: JSON.stringify({ topic, target_duration: targetDuration, fresh })
     });
     if (!res.ok) throw new Error('Gagal memicu pembuatan video');
     return res.json();

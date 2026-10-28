@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from src.layouts import registry
-from src.layouts.style.packs import build_pack
-from src.render.assemble import balance_lines, emph_html, render_layout_html, title_lines
-from src.render.renderer import RenderError, Renderer
-from src.tools import qc_dom
+from src.carousel.layouts import registry
+from src.carousel.layouts.style.packs import build_pack
+from src.carousel.render.assemble import balance_lines, emph_html, render_layout_html, title_lines
+from src.carousel.render.renderer import RenderError, Renderer
+from src.carousel.tools import qc_dom
 
 BRAND = json.loads((Path(__file__).resolve().parents[1] / "config" / "brand.json").read_text(encoding="utf-8"))
 

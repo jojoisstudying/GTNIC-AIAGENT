@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace as NS
 
-from src.agents import facts
+from src.carousel.agents import facts
 
 SNIPPET = (
     "Short-form video tips for marketers. Teams that plan content weekly see 38% more consistent posting than "
@@ -116,7 +116,7 @@ def test_build_facts_puts_brand_first_and_deduplicates() -> None:
 
 def test_run_builds_facts_in_code_and_strips_model_injected_facts() -> None:
     from src import config
-    from src.agents import research_agent as ra
+    from src.carousel.agents import research_agent as ra
     judge_calls = []
     final = {"trending_formats": [{"name": "Carousel", "why": "format yang mudah disimpan", "source_url": "https://later.com/blog/x"}],
              "content_angles": ["Rutinitas singkat tim"], "posting_time": {"instagram": "x", "tiktok": "y", "basis": "global",
@@ -158,7 +158,7 @@ def test_run_builds_facts_in_code_and_strips_model_injected_facts() -> None:
 
 def test_run_never_keeps_model_facts_even_if_fact_building_crashes() -> None:
     from src import config
-    from src.agents import research_agent as ra
+    from src.carousel.agents import research_agent as ra
     final = {"trending_formats": [], "content_angles": ["Rutinitas singkat tim"], "posting_time": {"instagram": "x", "tiktok": "y",
              "basis": "global", "needs_testing": True, "caveats": "", "source_urls": []}, "lessons_from_past_posts": "",
              "sources": ["https://later.com/blog/x"], "facts": {"stats": [{"value": "99%", "label": "Angka karangan model", "source": "x"}]}}
@@ -185,9 +185,9 @@ def test_run_never_keeps_model_facts_even_if_fact_building_crashes() -> None:
 
 
 def test_planner_can_use_built_facts_exactly() -> None:
-    from src.agents import planner
-    from src.layouts import registry
-    from src.layouts.models import validate_content
+    from src.carousel.agents import planner
+    from src.carousel.layouts import registry
+    from src.carousel.layouts.models import validate_content
     research = {"facts": {"stats": [{"value": "38%", "label": "Posting konsisten dengan rencana mingguan",
                                      "source": "Later (2026)", "origin": "web"}], "quotes": []}}
     spec = registry.load_all()["data_angka_besar"]

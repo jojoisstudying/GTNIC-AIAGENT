@@ -5,7 +5,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src import config, pipeline
+from src import config
+from src.carousel import pipeline
 from src.core.context import create_run_context
 from src.core.db import Base, Design, Event, Plan, ResearchSnapshot, Run
 from src.core.events import EventEmitter

@@ -2,9 +2,9 @@
 import json
 from pathlib import Path
 
-from src.layouts.style.color import contrast
-from src.layouts.style.packs import W, build_pack
-from src.layouts.style.tokens import resolve_tokens
+from src.carousel.layouts.style.color import contrast
+from src.carousel.layouts.style.packs import W, build_pack
+from src.carousel.layouts.style.tokens import resolve_tokens
 
 BRAND = json.loads((Path(__file__).resolve().parents[1] / "config" / "brand.json").read_text(encoding="utf-8"))
 

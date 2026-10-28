@@ -12,8 +12,8 @@ from unittest.mock import patch
 from PIL import Image
 
 from src import config
-from src.agents import designer
-from src.tools import asset_library, cloudflare_pose_generator
+from src.carousel.agents import designer
+from src.carousel.tools import asset_library, cloudflare_pose_generator
 
 
 class FakeResponse:

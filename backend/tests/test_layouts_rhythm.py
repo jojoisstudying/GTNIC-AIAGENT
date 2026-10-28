@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from src.layouts import (
+from src.carousel.layouts import (
     LAYOUT_REGISTRY,
     VALID_LAYOUT_IDS,
     get_layout_renderer,

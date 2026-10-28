@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.video.pipeline import VideoPipeline
+from src.reels.pipeline import VideoPipeline
 
 
 class Stop(Exception):

@@ -1,7 +1,7 @@
 """Generate one cached pose variant; new assets always require explicit review."""
 import argparse
 
-from src.tools.cloudflare_pose_generator import generate_pose
+from src.carousel.tools.cloudflare_pose_generator import generate_pose
 
 
 def main() -> None:

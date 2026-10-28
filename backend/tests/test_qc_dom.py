@@ -1,5 +1,5 @@
 """QC lapis 1 dari laporan DOM sintetis."""
-from src.tools import qc_dom
+from src.carousel.tools import qc_dom
 
 
 def item(id="title#1", x=64, y=300, w=900, h=120, **kw) -> dict:

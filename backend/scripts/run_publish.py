@@ -5,7 +5,7 @@ Opsi: --yes (lewati konfirmasi), --allow-placeholder (hanya tes di akun demo)"""
 import json
 import sys
 from src import config
-from src.agents import publisher
+from src.carousel.agents import publisher
 
 plan_out = json.loads((config.OUTPUT_DIR / "plan_latest.json").read_text(encoding="utf-8"))
 design = json.loads((config.OUTPUT_DIR / "design_latest.json").read_text(encoding="utf-8"))

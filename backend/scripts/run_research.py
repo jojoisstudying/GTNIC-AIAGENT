@@ -4,7 +4,7 @@ python -m scripts.run_research "tips produktivitas kerja tim" "perusahaan manufa
 import json
 import sys
 from pathlib import Path
-from src.agents import research_agent
+from src.carousel.agents import research_agent
 
 topic = sys.argv[1] if len(sys.argv) > 1 else "tips produktivitas kerja tim"
 industry = sys.argv[2] if len(sys.argv) > 2 else "perusahaan umum"

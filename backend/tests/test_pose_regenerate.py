@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from src import api, config
 from src.core.context import create_run_context
 from src.core.db import Base, Run
-from src.tools import asset_library, cloudflare_pose_generator as cpg
+from src.carousel.tools import asset_library, cloudflare_pose_generator as cpg
 
 BRAND = {"company": "Test Brand"}
 

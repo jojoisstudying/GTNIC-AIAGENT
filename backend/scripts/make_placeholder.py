@@ -3,7 +3,7 @@ Jalankan: python -m scripts.make_placeholder"""
 import json
 from PIL import Image, ImageDraw
 from src import config
-from src.tools import asset_library
+from src.carousel.tools import asset_library
 
 BODY, SKIN, DARK = (74, 132, 205, 255), (240, 200, 170, 255), (60, 70, 90, 255)
 

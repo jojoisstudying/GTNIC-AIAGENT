@@ -2,7 +2,7 @@
 
 import pytest
 from pydantic import ValidationError
-from src.video.models import WordTiming, SceneSpec, VideoScriptSchema, VideoRunResult
+from src.reels.models import WordTiming, SceneSpec, VideoScriptSchema, VideoRunResult
 
 
 def test_word_timing_valid():

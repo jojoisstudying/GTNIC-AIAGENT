@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.layouts import registry
-from src.layouts.models import LayoutError, validate_content
+from src.carousel.layouts import registry
+from src.carousel.layouts.models import LayoutError, validate_content
 
 LID = "cover_judul_raksasa"
 SRC = registry.LAYOUTS_DIR / LID

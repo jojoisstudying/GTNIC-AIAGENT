@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.layouts import registry  # noqa: E402
+from src.carousel.layouts import registry  # noqa: E402
 
 
 def main(argv: list[str]) -> int:

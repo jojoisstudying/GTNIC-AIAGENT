@@ -2,11 +2,11 @@
 
 import os
 import pytest
-from src.video.tts_engine import (
+from src.reels.tools.tts_engine import (
     estimate_word_timings_from_sentences,
     generate_voiceover_with_subtitles,
 )
-from src.video.models import WordTiming
+from src.reels.models import WordTiming
 
 
 def test_estimate_word_timings_from_sentences():

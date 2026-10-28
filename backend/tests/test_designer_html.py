@@ -6,9 +6,9 @@ import pytest
 from PIL import Image
 
 from src import config
-from src.agents import designer
-from src.agents import planner
-from src.render.renderer import RenderError
+from src.carousel.agents import designer
+from src.carousel.agents import planner
+from src.carousel.render.renderer import RenderError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +44,7 @@ def test_planner_normalize_targets_approved_html_layouts() -> None:
     normalized = planner.normalize(plan, BRAND, {"sources": [], "posting_time": {}})
     issues = planner.validate(normalized, "", {"sources": [], "posting_time": {}})
     assert issues == []
-    from src.layouts import registry as layout_registry
+    from src.carousel.layouts import registry as layout_registry
     approved_ids = {i for i, spec in layout_registry.load_all().items() if spec.meta.status == "approved"}
     assert all(slide["layout_id"] in approved_ids for slide in normalized["slides"])
     assert len({slide["layout_id"] for slide in normalized["slides"]}) >= 3

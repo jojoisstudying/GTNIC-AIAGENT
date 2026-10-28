@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.core.context import create_run_context
 from src.core.db import Base, Event
-from src.video.pipeline import VideoPipeline
+from src.reels.pipeline import VideoPipeline
 
 
 def _ctx():

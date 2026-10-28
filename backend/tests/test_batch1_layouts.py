@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from src.layouts import registry
-from src.layouts.models import validate_content
-from src.layouts.primitives.icons import ICON_NAMES, icon_svg
-from src.layouts.style.packs import build_pack
-from src.render.assemble import emph_html, render_layout_html
-from src.render.renderer import RenderError, Renderer
-from src.tools import qc_dom
+from src.carousel.layouts import registry
+from src.carousel.layouts.models import validate_content
+from src.carousel.layouts.primitives.icons import ICON_NAMES, icon_svg
+from src.carousel.layouts.style.packs import build_pack
+from src.carousel.render.assemble import emph_html, render_layout_html
+from src.carousel.render.renderer import RenderError, Renderer
+from src.carousel.tools import qc_dom
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = json.loads((ROOT / "config" / "brand.json").read_text(encoding="utf-8"))

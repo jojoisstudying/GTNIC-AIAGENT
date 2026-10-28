@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.agents import publisher
+from src.carousel.agents import publisher
 from src.core.db import Base
 
 
@@ -17,7 +17,7 @@ def test_db():
 
 def test_check_publishing_quota_passes_when_under_limit(monkeypatch):
     monkeypatch.setattr(
-        "src.tools.instagram.get_content_publishing_limit",
+        "src.carousel.tools.instagram.get_content_publishing_limit",
         lambda ctx=None: {"quota_usage": 5, "config": {"quota_total": 25, "quota_duration": 86400}}
     )
     res = publisher.check_publishing_quota()
@@ -26,7 +26,7 @@ def test_check_publishing_quota_passes_when_under_limit(monkeypatch):
 
 def test_check_publishing_quota_blocks_when_limit_reached(monkeypatch):
     monkeypatch.setattr(
-        "src.tools.instagram.get_content_publishing_limit",
+        "src.carousel.tools.instagram.get_content_publishing_limit",
         lambda ctx=None: {"quota_usage": 25, "config": {"quota_total": 25, "quota_duration": 86400}}
     )
     with pytest.raises(publisher.QuotaExceededError) as excinfo:
@@ -39,7 +39,7 @@ def test_preflight_reports_quota_exceeded(monkeypatch, test_db):
     session = test_db()
     monkeypatch.setattr("src.config.opt", lambda k, default="": "val" if k in publisher.REQUIRED_ENV else default)
     monkeypatch.setattr(
-        "src.tools.instagram.get_content_publishing_limit",
+        "src.carousel.tools.instagram.get_content_publishing_limit",
         lambda ctx=None: {"quota_usage": 50, "config": {"quota_total": 50, "quota_duration": 86400}}
     )
 
@@ -55,7 +55,7 @@ def test_publish_blocks_when_quota_exceeded(monkeypatch, test_db):
     monkeypatch.setattr("src.config.opt", lambda k, default="": "val" if k in publisher.REQUIRED_ENV else default)
     monkeypatch.setattr("src.core.credentials.ensure_instagram_credentials", lambda *a, **k: None)
     monkeypatch.setattr(
-        "src.tools.instagram.get_content_publishing_limit",
+        "src.carousel.tools.instagram.get_content_publishing_limit",
         lambda ctx=None: {"quota_usage": 25, "config": {"quota_total": 25, "quota_duration": 86400}}
     )
 

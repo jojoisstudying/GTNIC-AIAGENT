@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from src import api, config
 from src.core.context import create_run_context
 from src.core.db import Base, Design, Event, Run
-from src.video.models import VideoRunResult
+from src.reels.models import VideoRunResult
 
 BRAND = {"company": "Test Brand"}
 
@@ -56,7 +56,7 @@ def _fake_pipeline(result_or_exc):
 def test_success_marks_run_ok_and_stores_video(env, monkeypatch):
     factory, out_dir, run_id = env
     monkeypatch.setattr(
-        "src.video.pipeline.VideoPipeline",
+        "src.reels.pipeline.VideoPipeline",
         _fake_pipeline(lambda p: VideoRunResult(
             ok=True, video_path=p, duration_sec=28.5, file_size_mb=3.2, scenes_count=4)),
     )
@@ -80,7 +80,7 @@ def test_success_marks_run_ok_and_stores_video(env, monkeypatch):
 def test_get_run_status_exposes_video_url(env, monkeypatch):
     factory, out_dir, run_id = env
     monkeypatch.setattr(
-        "src.video.pipeline.VideoPipeline",
+        "src.reels.pipeline.VideoPipeline",
         _fake_pipeline(lambda p: VideoRunResult(
             ok=True, video_path=p, duration_sec=20.0, file_size_mb=1.0, scenes_count=3)),
     )
@@ -96,7 +96,7 @@ def test_get_run_status_exposes_video_url(env, monkeypatch):
 def test_qc_failure_marks_run_failed_with_issues(env, monkeypatch):
     factory, out_dir, run_id = env
     monkeypatch.setattr(
-        "src.video.pipeline.VideoPipeline",
+        "src.reels.pipeline.VideoPipeline",
         _fake_pipeline(lambda p: VideoRunResult(
             ok=False, video_path=p, issues=["Missing audio stream"], scenes_count=2)),
     )
@@ -110,11 +110,11 @@ def test_qc_failure_marks_run_failed_with_issues(env, monkeypatch):
 
 
 def test_script_failure_shows_readable_error_on_run(env, monkeypatch):
-    from src.video.scriptwriter import ScriptGenerationError
+    from src.reels.agents.scriptwriter import ScriptGenerationError
 
     factory, out_dir, run_id = env
     msg = "Scriptwriter gagal membuat naskah valid setelah 3 percobaan. Masalah terakhir: Total narasi 12 kata"
-    monkeypatch.setattr("src.video.pipeline.VideoPipeline", _fake_pipeline(ScriptGenerationError(msg)))
+    monkeypatch.setattr("src.reels.pipeline.VideoPipeline", _fake_pipeline(ScriptGenerationError(msg)))
 
     api._execute_video_pipeline_task(run_id, "topik uji", 30)
 
@@ -135,14 +135,14 @@ def test_video_task_injects_topic_researcher(env, monkeypatch):
         async def run_pipeline(self, topic, target_duration_sec=30, out_video_path=None, **_):
             raise RuntimeError("stop")
 
-    monkeypatch.setattr("src.video.pipeline.VideoPipeline", SpyPipeline)
+    monkeypatch.setattr("src.reels.pipeline.VideoPipeline", SpyPipeline)
     api._execute_video_pipeline_task(run_id, "topik uji", 30)
     assert callable(seen["researcher"])
 
 
 def test_exception_marks_run_failed_instead_of_stuck_running(env, monkeypatch):
     factory, out_dir, run_id = env
-    monkeypatch.setattr("src.video.pipeline.VideoPipeline", _fake_pipeline(RuntimeError("boom")))
+    monkeypatch.setattr("src.reels.pipeline.VideoPipeline", _fake_pipeline(RuntimeError("boom")))
 
     api._execute_video_pipeline_task(run_id, "topik uji", 30)
 

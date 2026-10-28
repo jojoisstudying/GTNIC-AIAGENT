@@ -1,5 +1,5 @@
 """List local photo assets and their review state."""
-from src.tools import asset_library
+from src.carousel.tools import asset_library
 
 for asset in asset_library.list_assets():
     key = f" | cache {asset['cache_key'][:16]}" if asset.get("cache_key") else ""

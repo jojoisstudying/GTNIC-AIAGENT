@@ -1,7 +1,7 @@
 """Unit tests for video QC guardrail module."""
 
 from unittest.mock import patch
-from src.video.qc_video import inspect_media_file, verify_video_quality
+from src.reels.tools.qc_video import inspect_media_file, verify_video_quality
 
 
 def test_qc_non_existent_file():
@@ -10,7 +10,7 @@ def test_qc_non_existent_file():
     assert any("does not exist" in issue for issue in res.issues)
 
 
-@patch("src.video.qc_video.inspect_media_file")
+@patch("src.reels.tools.qc_video.inspect_media_file")
 @patch("os.path.exists")
 def test_qc_valid_video(mock_exists, mock_inspect):
     mock_exists.return_value = True
@@ -34,7 +34,7 @@ def test_qc_valid_video(mock_exists, mock_inspect):
     assert len(res.issues) == 0
 
 
-@patch("src.video.qc_video.inspect_media_file")
+@patch("src.reels.tools.qc_video.inspect_media_file")
 @patch("os.path.exists")
 def test_qc_invalid_resolution_and_missing_audio(mock_exists, mock_inspect):
     mock_exists.return_value = True
@@ -52,7 +52,7 @@ def test_qc_invalid_resolution_and_missing_audio(mock_exists, mock_inspect):
     assert any("Missing audio stream" in i for i in res.issues)
 
 
-@patch("src.video.qc_video.inspect_media_file")
+@patch("src.reels.tools.qc_video.inspect_media_file")
 @patch("os.path.exists")
 def test_qc_file_too_large(mock_exists, mock_inspect):
     mock_exists.return_value = True
@@ -69,7 +69,7 @@ def test_qc_file_too_large(mock_exists, mock_inspect):
     assert any("exceeds maximum limit" in i for i in res.issues)
 
 
-@patch("src.video.qc_video.inspect_media_file")
+@patch("src.reels.tools.qc_video.inspect_media_file")
 @patch("os.path.exists")
 def test_qc_duration_deviation(mock_exists, mock_inspect):
     mock_exists.return_value = True

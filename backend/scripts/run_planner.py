@@ -6,7 +6,7 @@ Riset baru dulu (Agent 1 -> Agent 2):
 """
 import json
 import sys
-from src import pipeline
+from src.carousel import pipeline
 
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 topic = args[0] if args else "tips produktivitas kerja tim"

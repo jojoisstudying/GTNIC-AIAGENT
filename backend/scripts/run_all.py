@@ -13,9 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src import config, pipeline
-from src.agents import designer
-from src.tools import asset_library
+from src import config
+from src.carousel import pipeline
+from src.carousel.agents import designer
+from src.carousel.tools import asset_library
 
 
 def main() -> int:

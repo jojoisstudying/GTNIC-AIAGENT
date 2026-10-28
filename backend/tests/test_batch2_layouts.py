@@ -2,13 +2,13 @@
 import json
 from pathlib import Path
 
-from src.agents import planner
-from src.layouts import registry
-from src.layouts.models import validate_content
-from src.layouts.style.packs import build_pack
-from src.render.assemble import render_layout_html
-from src.render.renderer import Renderer
-from src.tools import qc_dom
+from src.carousel.agents import planner
+from src.carousel.layouts import registry
+from src.carousel.layouts.models import validate_content
+from src.carousel.layouts.style.packs import build_pack
+from src.carousel.render.assemble import render_layout_html
+from src.carousel.render.renderer import Renderer
+from src.carousel.tools import qc_dom
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "src" / "layouts" / "_fixtures"

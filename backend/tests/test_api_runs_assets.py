@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from src import api, config
 from src.core.context import create_run_context
 from src.core.db import Base, Design, Run
-from src.tools import asset_library
+from src.carousel.tools import asset_library
 
 BRAND = {"company": "Test Brand"}
 

@@ -18,11 +18,11 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.layouts import registry  # noqa: E402
-from src.layouts.style.packs import build_pack  # noqa: E402
-from src.render.assemble import render_layout_html  # noqa: E402
-from src.render.renderer import Renderer  # noqa: E402
-from src.tools import qc_dom  # noqa: E402
+from src.carousel.layouts import registry  # noqa: E402
+from src.carousel.layouts.style.packs import build_pack  # noqa: E402
+from src.carousel.render.assemble import render_layout_html  # noqa: E402
+from src.carousel.render.renderer import Renderer  # noqa: E402
+from src.carousel.tools import qc_dom  # noqa: E402
 
 FONT = ROOT / "src/render/fonts/Poppins-Medium.ttf"
 FIXTURES = ROOT / "src/layouts/_fixtures"

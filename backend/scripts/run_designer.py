@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 from sqlalchemy import select, func
 
 from src import config
-from src.agents import designer
+from src.carousel.agents import designer
 from src.core.context import create_run_context
 from src.core.db import SessionLocal, Design, Plan, Run
 

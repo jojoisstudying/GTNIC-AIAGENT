@@ -1,7 +1,7 @@
 """Tes guardrail & loop TANPA internet/API key."""
 import json
 from types import SimpleNamespace as NS
-from src.agents import research_agent as ra
+from src.carousel.agents import research_agent as ra
 
 ra.TOOL_IMPL["search_social_trends"] = lambda query: {"results": [
     {"title": "t", "url": "https://later.com/blog/x", "content": "carousels get up to 20 slides"}]}

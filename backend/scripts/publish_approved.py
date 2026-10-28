@@ -2,8 +2,8 @@
 import json
 
 from src import config
-from src.agents import publisher
-from src.tools import asset_library
+from src.carousel.agents import publisher
+from src.carousel.tools import asset_library
 
 
 def main() -> int:

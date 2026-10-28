@@ -1,7 +1,7 @@
 """gather_topic_research: riset fakta tentang topik (bukan tren media sosial)."""
 from types import SimpleNamespace
 
-from src.video import topic_research as tr
+from src.reels.agents import topic_research as tr
 
 
 class FakeResp:

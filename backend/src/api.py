@@ -17,10 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, desc, func
 
-from src import config, pipeline
+from src import config
+from src.carousel import pipeline
 from src.core.context import create_run_context
 from src.core.db import Run, Plan, Design, Event, Publication, SessionLocal
-from src.layouts import registry
+from src.carousel.layouts import registry
 
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
@@ -60,6 +61,7 @@ class TriggerRunRequest(BaseModel):
 class VideoRunRequest(BaseModel):
     topic: str = Field(..., description="Topik video Reels / Shorts")
     target_duration: int = Field(30, ge=15, le=60, description="Target durasi video dalam detik (15-60)")
+    fresh: bool = Field(True, description="True untuk riset Tavily sebelum menulis naskah, False untuk tanpa riset")
 
 
 class AssetUploadRequest(BaseModel):
@@ -104,7 +106,7 @@ def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design:
 
 def _execute_resume_task(run_id: str):
     """Worker task to resume run after assets have been approved."""
-    from src.agents import designer
+    from src.carousel.agents import designer
     with SessionLocal() as session:
         run = session.get(Run, run_id)
         if not run:
@@ -180,7 +182,7 @@ def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
     Kegagalan generate tidak boleh membuat run stuck 'running': run dikembalikan ke
     'awaiting_assets' dengan pesan error supaya bisa dicoba lagi.
     """
-    from src.tools import cloudflare_pose_generator
+    from src.carousel.tools import cloudflare_pose_generator
 
     ctx = None
     generated = False
@@ -277,21 +279,22 @@ def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
         session.commit()
 
 
-def _execute_video_pipeline_task(run_id: str, topic: str, duration: int):
+def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: bool = True):
     """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
     import asyncio
-    from src.video.pipeline import VideoPipeline
-    from src.video.topic_research import gather_topic_research
+    from src.reels.pipeline import VideoPipeline
+    from src.reels.agents.topic_research import gather_topic_research
 
     brand = pipeline.load_brand()
     ctx = create_run_context(topic, brand, run_id=run_id)
     try:
-        ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video"})
+        ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video", "fresh": fresh})
         out_path = config.OUTPUT_DIR / "reels" / f"reels_{run_id}.mp4"
 
+        researcher_fn = (lambda t: gather_topic_research(t, ctx=ctx)) if fresh else None
         vp = VideoPipeline(
             context=ctx,
-            researcher=lambda t: gather_topic_research(t, ctx=ctx),
+            researcher=researcher_fn,
         )
         result = asyncio.run(vp.run_pipeline(
             topic=topic,
@@ -472,7 +475,7 @@ def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
     Tiap item memuat `format` (carousel|video), `pending_review_count` (pose yang
     masih menunggu keputusan *saat ini*), serta `thumbnail_url` / `video_url`.
     """
-    from src.tools import asset_library
+    from src.carousel.tools import asset_library
 
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -592,7 +595,7 @@ def get_run_status(run_id: str):
                 # Status terkini dari library (snapshot di design bisa sudah usang
                 # kalau aset sudah di-approve/reject setelah design dibuat)
                 try:
-                    from src.tools import asset_library as _al
+                    from src.carousel.tools import asset_library as _al
                     live = _al.get_asset(pr.get("id")) if pr.get("id") is not None else None
                     pr_copy["status"] = live["status"] if live else "missing"
                 except Exception:
@@ -662,7 +665,7 @@ def get_run_events(run_id: str):
 @app.post("/api/v1/runs/{run_id}/publish")
 def publish_run_to_instagram(run_id: str):
     """Mempublikasikan carousel yang sudah di-generate langsung ke Instagram feed."""
-    from src.agents import publisher
+    from src.carousel.agents import publisher
 
     brand = pipeline.load_brand()
     with SessionLocal() as session:
@@ -678,10 +681,34 @@ def publish_run_to_instagram(run_id: str):
         ).first()
 
         if design_row and json.loads(design_row.result_json or "{}").get("type") == "video":
-            raise HTTPException(
-                status_code=400,
-                detail="Publish Reels ke Instagram belum didukung. Video bisa diunduh dari preview.",
-            )
+            video_data = json.loads(design_row.result_json)
+            vpath = video_data.get("video_path")
+            if not vpath or not Path(vpath).exists():
+                raise HTTPException(status_code=400, detail="File video Reels tidak ditemukan.")
+            caption = f"{run_row.topic}\n\n#reels #aiagent #automation"
+            if plan_row and plan_row.plan_json:
+                try:
+                    caption = json.loads(plan_row.plan_json).get("caption") or caption
+                except Exception:
+                    pass
+
+            ctx = create_run_context(run_row.topic, brand, run_id=run_id)
+            try:
+                result = publisher.publish_reel(vpath, caption, ctx=ctx)
+                is_ok = bool(result.get("media_id"))
+                return {
+                    "run_id": run_id,
+                    "status": "published" if is_ok else "failed",
+                    "media_id": result.get("media_id"),
+                    "permalink": result.get("permalink"),
+                    "error": result.get("error")
+                }
+            except Exception as e:
+                print(f"[PUBLISH REELS ERROR] {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+            finally:
+                ctx.close()
+
         if not plan_row or not design_row:
             raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
 
@@ -716,7 +743,7 @@ def publish_run_to_instagram(run_id: str):
 @app.post("/api/v1/assets/{asset_id}/review")
 def review_pending_asset(asset_id: int, status: str = "approved"):
     """Menyetujui (approve) atau menolak (reject) pose hasil generate Cloudflare."""
-    from src.tools import asset_library, cloudflare_pose_generator
+    from src.carousel.tools import asset_library, cloudflare_pose_generator
     if status not in {"approved", "rejected"}:
         raise HTTPException(status_code=400, detail="Status harus 'approved' atau 'rejected'")
 
@@ -774,7 +801,7 @@ def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
     - Jika tidak ada run yang menunggu: hanya membuat kandidat baru di Asset Library.
     Proses berjalan di background (generate gambar + hapus background bisa >1 menit).
     """
-    from src.tools import asset_library, cloudflare_pose_generator
+    from src.carousel.tools import asset_library, cloudflare_pose_generator
 
     asset = asset_library.get_asset(asset_id)
     if not asset:
@@ -836,7 +863,7 @@ def upload_talent_reference(
     description: str = Form("Foto mentah orang tanpa pose sebagai referensi AI")
 ):
     """Upload mentahan foto orang tanpa pose untuk referensi Cloudflare Workers AI."""
-    from src.tools.asset_library import add_asset
+    from src.carousel.tools.asset_library import add_asset
     try:
         people_dir = config.ROOT / "data" / "people" / person_id
         people_dir.mkdir(parents=True, exist_ok=True)
@@ -897,7 +924,7 @@ def list_system_assets(status: Optional[str] = None):
     Respons selalu menyertakan `counts` per status (tidak terpengaruh filter) untuk badge UI.
     """
     from collections import Counter
-    from src.tools.asset_library import list_assets
+    from src.carousel.tools.asset_library import list_assets
 
     wanted = None
     if status and status != "all":
@@ -949,7 +976,7 @@ def create_video_run(req: VideoRunRequest, background_tasks: BackgroundTasks):
     run_id = ctx.run_id
     ctx.close()
 
-    background_tasks.add_task(_execute_video_pipeline_task, run_id, req.topic, req.target_duration)
+    background_tasks.add_task(_execute_video_pipeline_task, run_id, req.topic, req.target_duration, req.fresh)
 
     return {
         "run_id": run_id,

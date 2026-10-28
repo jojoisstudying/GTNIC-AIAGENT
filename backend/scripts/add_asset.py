@@ -3,7 +3,7 @@ Contoh: python -m scripts.add_asset data/assets/budi_mikir.png mikir "Budi sedan
 Foto asli otomatis diutamakan dibanding placeholder untuk tag yang sama."""
 import argparse
 import sys
-from src.tools import asset_library
+from src.carousel.tools import asset_library
 
 
 def main() -> int:

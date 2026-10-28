@@ -3,9 +3,9 @@ import json
 import random
 from pathlib import Path
 
-from src.agents import planner
-from src.layouts.style.packs import build_pack
-from src.render.assemble import emph_html, title_lines
+from src.carousel.agents import planner
+from src.carousel.layouts.style.packs import build_pack
+from src.carousel.render.assemble import emph_html, title_lines
 
 BRAND = json.loads((Path(__file__).resolve().parents[1] / "config" / "brand.json").read_text(encoding="utf-8"))
 RESEARCH = {"sources": [], "posting_time": {}, "facts": {"stats": []}}
@@ -29,7 +29,7 @@ def test_emphasis_is_capped_to_two_phrases() -> None:
 def test_accent_shape_is_an_outline_not_a_muddy_fill() -> None:
     for seed in range(60):
         pack = build_pack(seed, BRAND, total=5)
-        from src.layouts.style.packs import deco_html
+        from src.carousel.layouts.style.packs import deco_html
         svg = deco_html(pack, 0)
         if any(s["tone"] == "accent" for s in pack["shapes"]):
             assert 'fill="none"' in svg and "stroke-width=\"5\"" in svg
@@ -69,8 +69,8 @@ def test_planner_enforces_variety_over_a_lazy_llm() -> None:
 # ------------------------------------------------------------------ batch 3-4 + kejujuran data
 
 def test_batch34_layouts_load_with_valid_samples() -> None:
-    from src.layouts import registry
-    from src.layouts.models import validate_content
+    from src.carousel.layouts import registry
+    from src.carousel.layouts.models import validate_content
     new = [s for s in registry.load_all().values() if s.meta.batch in (3, 4)]
     assert len(new) == 12
     for s in new:
@@ -83,7 +83,7 @@ _NEEDS_DATA = {"bukti_kutipan", "data_tiga_angka", "data_angka_besar",
 
 
 def test_planner_never_fabricates_quotes_stats_or_comparisons() -> None:
-    from src.layouts import registry
+    from src.carousel.layouts import registry
     specs = registry.load_all()           # termasuk layout draft: uji aturan, bukan status
     for i in range(10):
         plan = planner.normalize(_lazy_plan(i), BRAND, RESEARCH, approved=specs)
@@ -91,7 +91,7 @@ def test_planner_never_fabricates_quotes_stats_or_comparisons() -> None:
 
 
 def test_planner_uses_sourced_facts_exactly() -> None:
-    from src.layouts import registry
+    from src.carousel.layouts import registry
     specs = registry.load_all()
     stats = [{"value": "72%", "label": "Peserta merasa lebih percaya diri", "source": "Survei internal"},
              {"value": "3x", "label": "Latihan dalam sebulan", "source": "Survei internal"},
@@ -117,7 +117,7 @@ def test_planner_uses_sourced_facts_exactly() -> None:
 
 
 def test_planner_fills_generic_list_steps_and_numbers() -> None:
-    from src.layouts import registry
+    from src.carousel.layouts import registry
     specs = registry.load_all()
     only = {k: specs[k] for k in ("cover_judul_raksasa", "langkah_timeline", "langkah_nomor_besar", "cta_komen")}
     plan = _lazy_plan(0)

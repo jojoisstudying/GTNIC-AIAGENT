@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.video.scriptwriter import (
+from src.reels.agents.scriptwriter import (
     MAX_ATTEMPTS, ScriptGenerationError, VideoScriptwriter, plan_budget,
 )
 

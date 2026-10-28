@@ -225,7 +225,7 @@ export default function App() {
       if (formatType === 'carousel') {
         res = await api.generateCarousel(topic, freshResearch);
       } else {
-        res = await api.generateVideo(topic, targetDuration);
+        res = await api.generateVideo(topic, targetDuration, freshResearch);
       }
       setCurrentRunId(res.run_id);
     } catch (err) {
@@ -572,18 +572,18 @@ export default function App() {
 
                 <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-gray-800/60">
                   <div className="flex items-center gap-4 text-xs text-gray-400">
-                    {formatType === 'carousel' ? (
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={freshResearch}
-                          onChange={(e) => setFreshResearch(e.target.checked)}
-                          className="rounded bg-gray-900 border-gray-700 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span>Live Tavily Search (Riset Fakta Baru)</span>
-                      </label>
-                    ) : (
-                      <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={freshResearch}
+                        onChange={(e) => setFreshResearch(e.target.checked)}
+                        className="rounded bg-gray-900 border-gray-700 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>Live Tavily Search ({formatType === 'video' ? 'Riset Fakta Topik Reels' : 'Riset Fakta Baru'})</span>
+                    </label>
+
+                    {formatType === 'video' && (
+                      <div className="flex items-center gap-2 pl-2 border-l border-gray-800">
                         <span>Target Durasi:</span>
                         <select
                           value={targetDuration}
@@ -861,27 +861,61 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Info biaya & status publish untuk run video (belum punya plan/caption) */}
-                  {isVideoRun && runData && !runData.plan && (
-                    <div className="p-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between gap-3">
-                      <div className="text-[11px] text-gray-400 flex items-center gap-2">
-                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                        Biaya: <strong className="text-emerald-400 font-mono">${(runData.cost_usd ?? 0).toFixed(4)}</strong>
-                        <span className="text-gray-600">|</span>
-                        Token: <span className="font-mono text-gray-300">{(runData.tokens_in ?? 0) + (runData.tokens_out ?? 0)}</span>
+                  {/* Info biaya & status publish untuk run video */}
+                  {isVideoRun && runData && (
+                    <div className="p-4 border-t border-gray-800 bg-gray-950/80 space-y-3">
+                      {publishResult && (
+                        <div className={`p-3 rounded-lg text-xs border ${
+                          publishResult.status === 'published' ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300' : 'bg-red-950/40 border-red-800 text-red-300'
+                        }`}>
+                          <div className="font-semibold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            {publishResult.status === 'published' ? 'Reels Berhasil di-Publish ke Instagram!' : 'Gagal Publikasi Reels'}
+                          </div>
+                          {publishResult.permalink && (
+                            <a 
+                              href={publishResult.permalink} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-emerald-400 underline block mt-1 hover:text-emerald-300"
+                            >
+                              Lihat Reels di Instagram &rarr;
+                            </a>
+                          )}
+                          {publishResult.error && (
+                            <p className="text-red-400 mt-1">{publishResult.error}</p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[11px] text-gray-400 flex items-center gap-2">
+                          <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                          Biaya: <strong className="text-emerald-400 font-mono">${(runData.cost_usd ?? 0).toFixed(4)}</strong>
+                          <span className="text-gray-600">|</span>
+                          Token: <span className="font-mono text-gray-300">{(runData.tokens_in ?? 0) + (runData.tokens_out ?? 0)}</span>
+                        </div>
+                        <button
+                          onClick={handlePublish}
+                          disabled={publishing || runData.status !== 'ok'}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                        >
+                          {publishing ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Mengunggah Reels...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5" /> Publish Reels to Instagram
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        disabled
-                        title="Publish Reels ke Instagram belum tersedia"
-                        className="px-4 py-2 bg-gray-800 text-gray-600 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed"
-                      >
-                        <Send className="w-3.5 h-3.5" /> Publish Reels (segera hadir)
-                      </button>
                     </div>
                   )}
 
-                  {/* Caption & Publish Action Bar */}
-                  {runData?.plan && (
+                  {/* Caption & Publish Action Bar untuk Carousel */}
+                  {!isVideoRun && runData?.plan && (
                     <div className="p-4 border-t border-gray-800 bg-gray-950/80 space-y-3">
                       <div>
                         <span className="text-xs font-semibold text-gray-400 block mb-1">Draf Caption Instagram:</span>
