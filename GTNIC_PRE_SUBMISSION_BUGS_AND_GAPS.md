@@ -142,7 +142,7 @@ Status values used in this document:
 
 # 3. P0 — Essential product capabilities missing or incomplete
 
-## FEATURE-01 — Enterprise Workflow / Company Context (MUST HAVE)
+## FEATURE-01 — Enterprise Workflow / Company Context (MUST HAVE) `[x]`
 
 **Current state**
 - Frontend has a Brand & Asset Setup area.
@@ -188,7 +188,7 @@ Minimum input fields:
 - Generated research and content reflect the selected audience and business goal.
 - The agent does not invent company facts when profile information is missing.
 
-## FEATURE-02 — Strategy & Scheduling (MUST HAVE)
+## FEATURE-02 — Strategy & Scheduling (MUST HAVE) `[x]`
 
 **Current state**
 - Planner prompt asks for a `schedule` object with `slots`, `rationale`, and `ab_test`.
@@ -241,7 +241,7 @@ Minimum strategy outputs:
 - The system clearly distinguishes recommendation from actual scheduled execution.
 - A post cannot be auto-published without the required approval state.
 
-## FEATURE-03 — Analytics → Feedback Loop (MUST HAVE)
+## FEATURE-03 — Analytics → Feedback Loop (MUST HAVE) `[x]`
 
 **Current state**
 - Research Agent has a `get_my_recent_performance` tool and requests recent Instagram performance.
@@ -296,7 +296,7 @@ Minimum feedback output:
 
 # 4. P1 — Other bugs and reliability issues
 
-## BUG-05 — Pillow renderer branch may access `meta["issues"]` before it exists
+## BUG-05 — Pillow renderer branch may access `meta["issues"]` before it exists `[x]`
 
 **Evidence**
 - `backend/src/carousel/agents/designer.py`
@@ -310,7 +310,7 @@ Minimum feedback output:
 - Initialize a consistent metadata schema for every renderer branch, including `issues`, `dom_issues`, `path`, and other fields consumed downstream.
 - Add a test using `RENDERER=pillow` and a plan with `layout_id`.
 
-## BUG-06 — Talent-reference upload lacks visible file validation and size limits
+## BUG-06 — Talent-reference upload lacks visible file validation and size limits `[x]`
 
 **Evidence**
 - `backend/src/api.py`, `/api/v1/assets/upload`
@@ -329,7 +329,7 @@ Minimum feedback output:
 - Use safe temporary files and atomic replacement.
 - Return clear validation errors.
 
-## BUG-07 — Brand profile data quality is incomplete
+## BUG-07 — Brand profile data quality is incomplete `[x]`
 
 **Evidence**
 - `backend/config/brand.json`
@@ -346,7 +346,7 @@ Minimum feedback output:
 - Keep sample company data fictional or explicitly authorized.
 - Ensure all public contact details are intentional.
 
-## BUG-08 — Carousel-level semantic QC is incomplete
+## BUG-08 — Carousel-level semantic QC is incomplete `[x]`
 
 **Current state**
 - DOM-based QC is already called in the main HTML rendering path.
@@ -374,7 +374,7 @@ Current slide-level technical QC does not by itself prove that the entire carous
 - Keep the existing DOM QC as the visual/layout layer.
 - Separate `error` (blocks approval) from `warning` (human review).
 
-## BUG-09 — No CI workflow was visible in the inspected repository tree
+## BUG-09 — No CI workflow was visible in the inspected repository tree `[x]`
 
 **Observed behavior**
 - No `.github/workflows` files were found in the inspected tree.
@@ -390,7 +390,7 @@ Add a basic GitHub Actions workflow that:
 
 If CI cannot be completed before the deadline, run and record these checks manually before submission.
 
-## BUG-10 — Reels and Carousel do not yet share a unified strategy/publishing lifecycle
+## BUG-10 — Reels and Carousel do not yet share a unified strategy/publishing lifecycle `[x]`
 
 **Observed behavior**
 - Carousel generation has a Research → Planner → Designer flow.
@@ -442,7 +442,7 @@ If CI cannot be completed before the deadline, run and record these checks manua
 
 # 6. P2 — Submission polish
 
-## POLISH-01 — Frontend package metadata
+## POLISH-01 — Frontend package metadata `[x]`
 - `frontend/package.json` still uses a generic package name (`temp-app`) and version `0.0.0`.
 - Rename it to a project-appropriate package name and set a sensible initial version.
 

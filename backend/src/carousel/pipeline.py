@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from src import config
 from src.carousel.agents import designer, research_agent, planner
+from src.carousel.tools.semantic_qc import check_carousel_semantics
 from src.core.context import RunContext, create_run_context
 from src.core.db import Design, Plan, ResearchSnapshot, Run
 
@@ -23,8 +24,51 @@ def _export_run_version(run_id: str, name: str, version: int, payload: dict) -> 
     return version_path
 
 
-def load_brand() -> dict:
-    return json.loads((config.ROOT / "config" / "brand.json").read_text(encoding="utf-8"))
+def load_brand(session=None) -> dict:
+    """Load enterprise brand context with SQLite EnterpriseProfile as the primary single source of truth."""
+    base_brand = {}
+    brand_file = config.ROOT / "config" / "brand.json"
+    if brand_file.exists():
+        try:
+            base_brand = json.loads(brand_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Enrich / override from EnterpriseProfile DB if available
+    try:
+        from src.core.db import EnterpriseProfile, SessionLocal
+        owns_session = False
+        if session is None:
+            session = SessionLocal()
+            owns_session = True
+
+        prof = session.scalar(select(EnterpriseProfile).order_by(desc(EnterpriseProfile.id)).limit(1))
+        if prof:
+            base_brand["company"] = prof.company_name or base_brand.get("company", "")
+            base_brand["industry"] = prof.industry or base_brand.get("industry", "")
+            base_brand["description"] = prof.description or base_brand.get("description", "")
+            base_brand["tone"] = prof.tone or base_brand.get("tone", "")
+            if prof.content_pillars_json:
+                base_brand["content_pillars"] = json.loads(prof.content_pillars_json)
+            if prof.brand_rules_json:
+                base_brand["rules"] = json.loads(prof.brand_rules_json)
+            if prof.target_audience_json:
+                aud = json.loads(prof.target_audience_json)
+                base_brand["target_audience"] = aud
+                if isinstance(aud, dict) and aud.get("primary_segment"):
+                    base_brand["audience"] = aud["primary_segment"]
+            if prof.products_services_json:
+                base_brand["products_services"] = json.loads(prof.products_services_json)
+            if prof.business_goals_json:
+                base_brand["business_goals"] = json.loads(prof.business_goals_json)
+            base_brand["enterprise_profile_id"] = prof.id
+
+        if owns_session:
+            session.close()
+    except Exception as e:
+        print(f"[PIPELINE] Warning: Could not enrich brand from EnterpriseProfile DB: {e}")
+
+    return base_brand
 
 
 def load_saved_research() -> dict:
@@ -110,7 +154,19 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             return out
 
         if include_design and out.get("plan"):
+            # BUG-08 semantic QC gate: periksa konsistensi peran slide, headline, dan klaim statistik
+            semantic_qc_result = check_carousel_semantics(out["plan"])
+            if not semantic_qc_result.get("ok"):
+                ctx.emit("warn", "semantic_qc_issues", step="qc", status="warn",
+                         detail={"errors": semantic_qc_result.get("errors", []),
+                                 "warnings": semantic_qc_result.get("warnings", [])})
+                # Jika ada error semantic kritis (misal role ordering atau duplikasi parah)
+                if semantic_qc_result.get("errors"):
+                    out["semantic_qc"] = semantic_qc_result
+                    print("Semantic QC mendeteksi isu kritis:", semantic_qc_result.get("errors"))
+
             design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
+            design_result["semantic_qc"] = semantic_qc_result
             design_version = session.scalar(select(func.max(Design.version)).where(Design.run_id == ctx.run_id)) or 0
             session.add(Design(run_id=ctx.run_id, plan_id=plan_row.id, version=design_version + 1,
                                ok=bool(design_result.get("ok")),

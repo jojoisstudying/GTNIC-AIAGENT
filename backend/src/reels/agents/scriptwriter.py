@@ -153,6 +153,24 @@ class VideoScriptwriter:
             f"BUDGET KATA NARASI: total {budget['min_words']}-{budget['max_words']} kata "
             f"(sekitar {per_scene} kata per scene)"
         )
+
+        # Enterprise context injection
+        try:
+            from src.carousel.pipeline import load_brand
+            brand = load_brand()
+            company = brand.get("company")
+            tone = brand.get("tone")
+            audience = brand.get("audience")
+            pillars = ", ".join(brand.get("content_pillars") or [])
+            rules = "\n- ".join(brand.get("rules") or [])
+
+            enterprise_block = f"\n\nKONTEKS PERUSAHAAN (ENTERPRISE PROFILE):\n- Perusahaan: {company}\n- Tone: {tone}\n- Target Audiens: {audience}\n- Content Pillars: {pillars}"
+            if rules:
+                enterprise_block += f"\n- Brand Guardrail Rules:\n- {rules}"
+            prompt += enterprise_block
+        except Exception:
+            pass
+
         if research_context and research_context.strip():
             prompt += ("\n\nRISET (satu-satunya sumber klaim dan angka; jangan menambah di luar ini):\n"
                        f"{research_context.strip()}")

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, desc, func
@@ -37,9 +37,18 @@ app = FastAPI(
 )
 
 # Enable CORS for Frontend development (Next.js/Vite/localhost)
+allowed_origins_env = config.opt("CORS_ORIGINS", "")
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()] if allowed_origins_env else [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "*"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -491,7 +500,7 @@ def list_layouts(role: Optional[str] = None, approved_only: bool = True):
     }
 
 
-@app.post("/api/v1/runs/generate")
+@app.post("/api/v1/runs/generate", dependencies=[Depends(auth.verify_api_key)])
 def create_run(req: TriggerRunRequest, background_tasks: BackgroundTasks):
     """Memicu pembuatan konten carousel secara otonom oleh AI Agent."""
     brand = pipeline.load_brand()
@@ -750,7 +759,7 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
         ctx.close()
 
 
-@app.post("/api/v1/runs/{run_id}/publish")
+@app.post("/api/v1/runs/{run_id}/publish", dependencies=[Depends(auth.verify_api_key)])
 def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
     """Mempublikasikan hasil run ke Instagram: carousel (feed) atau Reels (video)."""
     from src.agents import publisher
@@ -1113,7 +1122,7 @@ def get_enterprise_profile_endpoint():
         return data
 
 
-@app.put("/api/v1/enterprise/profile")
+@app.put("/api/v1/enterprise/profile", dependencies=[Depends(auth.verify_api_key)])
 def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
     """Memperbarui profil & batasan perusahaan tanpa edit file JSON manual."""
     with SessionLocal() as session:
@@ -1221,7 +1230,7 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
         return {"status": "ok", "item_id": item.id, "new_status": item.status}
 
 
-@app.post("/api/v1/strategy/calendar/{item_id}/generate")
+@app.post("/api/v1/strategy/calendar/{item_id}/generate", dependencies=[Depends(auth.verify_api_key)])
 def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks):
     """Memulai pipeline post otomatis langsung dari item strategi kalender yang telah disetujui."""
     with SessionLocal() as session:
