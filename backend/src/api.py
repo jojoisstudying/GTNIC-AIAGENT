@@ -1231,12 +1231,19 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
 
 
 @app.post("/api/v1/strategy/calendar/{item_id}/generate", dependencies=[Depends(auth.verify_api_key)])
-def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks):
+def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks, force: bool = False):
     """Memulai pipeline post otomatis langsung dari item strategi kalender yang telah disetujui."""
     with SessionLocal() as session:
         item = session.get(ContentStrategyItem, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Item strategi tidak ditemukan")
+
+        # P0.4: Approval enforcement gate
+        if not force and item.status not in ("approved", "ready"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item strategi belum disetujui (status saat ini: '{item.status}'). Setujui (Approve) item terlebih dahulu sebelum digenerate."
+            )
 
         brand = pipeline.load_brand()
         ctx = create_run_context(item.topic, brand)
@@ -1244,7 +1251,7 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
         ctx.close()
 
         item.run_id = run_id
-        item.status = "running"
+        item.status = "producing"
         session.commit()
 
         if item.format == "video":
@@ -1252,7 +1259,7 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
         else:
             background_tasks.add_task(_execute_pipeline_task, run_id, item.topic, False, True)
 
-        return {"status": "running", "run_id": run_id, "strategy_item_id": item.id}
+        return {"status": "producing", "run_id": run_id, "strategy_item_id": item.id}
 
 
 # ===========================================================================

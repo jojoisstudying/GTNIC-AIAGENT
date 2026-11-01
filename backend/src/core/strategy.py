@@ -108,11 +108,11 @@ def calculate_profile_completeness(profile_data: dict) -> int:
     return int((present / len(required_keys)) * 100)
 
 
-def generate_7day_strategy(session: Session, reset: bool = False) -> List[ContentStrategyItem]:
+def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool = True) -> List[ContentStrategyItem]:
     """Menghasilkan atau memperbarui kalender konten 7 hari berbasis konteks perusahaan dan feedback analytics."""
     if reset:
         # Hapus item draft lama jika user meminta regenerate kalender baru
-        existing = session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.status == "draft")).all()
+        existing = session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.status.in_(["draft", "rejected"]))).all()
         for item in existing:
             session.delete(item)
         session.commit()
@@ -126,82 +126,131 @@ def generate_7day_strategy(session: Session, reset: bool = False) -> List[Conten
     if not pillars:
         pillars = ["Edukasi Bisnis", "Tips Praktis", "Studi Kasus", "Kabar Industri"]
 
+    prods = json.loads(profile.products_services_json or "[]")
+    audience_dict = json.loads(profile.target_audience_json or "{}")
+    primary_audience = audience_dict.get("primary_segment", "Pengambil Keputusan & Manajer Enterprise")
+    goals = json.loads(profile.business_goals_json or "[]")
+
     # Periksa apakah ada insight analytics aktif untuk diintegrasikan
     latest_insight = session.scalars(
         select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))
     ).first()
 
     today = datetime.now()
-    plan_templates = [
+    llm_generated_items = []
+
+    if use_llm:
+        try:
+            from src.core.llm import LLMClient
+            client = LLMClient()
+            system_prompt = (
+                "Kamu adalah Social Media Director tingkat Enterprise. Tugasmu adalah membuat rencana konten "
+                "7 hari yang disesuaikan secara presisi dengan profil bisnis, target audiens, pilar konten, "
+                "dan masukan analitik terbaru. "
+                "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\"}]}"
+            )
+            insight_context = f"Terbaru Insight Analitik: '{latest_insight.title}' ({latest_insight.observation})" if latest_insight else "Belum ada insight historis."
+            user_prompt = (
+                f"Perusahaan: {profile.company_name}\n"
+                f"Industri: {profile.industry}\n"
+                f"Deskripsi: {profile.description}\n"
+                f"Target Audiens: {primary_audience}\n"
+                f"Tujuan Bisnis: {', '.join(goals)}\n"
+                f"Pilar Konten: {', '.join(pillars)}\n"
+                f"Feedback Analitik: {insight_context}\n\n"
+                "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel dan video Reels, "
+                "dengan objektif yang jelas dan rationale berbasis data bisnis."
+            )
+            resp = client.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                step="strategy_generator",
+                temperature=0.4,
+                max_completion_tokens=2048
+            )
+            content = resp.choices[0].message.content or ""
+            # Bersihkan JSON markdown wrapper
+            clean_json = re.sub(r"^```(?:json)?\s*", "", content.strip())
+            clean_json = re.sub(r"\s*```$", "", clean_json)
+            parsed = json.loads(clean_json)
+            if isinstance(parsed, dict) and "items" in parsed and len(parsed["items"]) == 7:
+                llm_generated_items = parsed["items"]
+        except Exception as e:
+            print(f"[STRATEGY] Dynamic LLM strategy generation fallback to structured template: {e}")
+
+    # Fallback template adaptif jika LLM tidak tersedia atau format tidak match
+    plan_templates = llm_generated_items or [
         {
             "offset_days": 1,
-            "topic": "5 Tanda Sistem TI Perusahaan Anda Mulai Menjadi Bottleneck Operasional",
+            "topic": f"5 Tanda Arsitektur TI Perusahaan Anda Mulai Menghambat Pertumbuhan Bisnis",
             "format": "carousel",
             "pillar": pillars[0] if len(pillars) > 0 else "Edukasi Bisnis",
             "objective": "Edukasi & Brand Awareness",
-            "target_segment": "CTO & VP Engineering",
+            "target_segment": primary_audience,
             "slot": "09:00 WIB",
-            "rationale": "Format carousel informatif untuk membuka minggu kerja dengan topik strategis."
+            "rationale": "Format carousel komparatif untuk membuka minggu kerja dengan topik strategis."
         },
         {
             "offset_days": 2,
-            "topic": "Bagaimana Otomasi Alur Kerja Menghemat 120 Jam Kerja Tim Operasional Tiap Bulan",
+            "topic": f"Otomasi Workflow: Cara Menghemat 100+ Jam Kerja Tim Operasional per Bulan",
             "format": "video",
             "pillar": pillars[1] if len(pillars) > 1 else pillars[0],
             "objective": "Lead Generation",
-            "target_segment": "Head of Operations & GM",
+            "target_segment": primary_audience,
             "slot": "13:00 WIB",
             "rationale": "Format video Reels ringkas dengan visual b-roll data metrik untuk audiens mobile siang hari."
         },
         {
             "offset_days": 3,
-            "topic": "Audit Keamanan Sistem: 3 Celah yang Sering Diabaikan Saat Scaling Aplikasi",
+            "topic": f"Audit Keamanan Sistem: 3 Celah Kritis yang Sering Terlewat Saat Scaling",
             "format": "carousel",
             "pillar": pillars[2] if len(pillars) > 2 else pillars[0],
             "objective": "Kredibilitas & Trust Building",
-            "target_segment": "Tech Lead & Developer Enterprise",
+            "target_segment": primary_audience,
             "slot": "18:30 WIB",
             "rationale": "Membahas checklist keamanan teknis mendalam sebelum rilis produksi."
         },
         {
             "offset_days": 4,
-            "topic": "Studi Kasus: Modernisasi Arsitektur Monolith ke Event-Driven Microservices",
+            "topic": f"Studi Kasus: Modernisasi Sistem Monolith ke Cloud-Native Microservices",
             "format": "carousel",
             "pillar": pillars[3] if len(pillars) > 3 else pillars[0],
             "objective": "Thought Leadership",
-            "target_segment": "Enterprise Architects & Tech Execs",
+            "target_segment": primary_audience,
             "slot": "09:00 WIB",
-            "rationale": "Studi kasus mendalam yang membuktikan rekam jejak teknis dan efisiensi cloud."
+            "rationale": "Studi kasus terverifikasi yang membuktikan rekam jejak teknis dan efisiensi cloud."
         },
         {
             "offset_days": 5,
-            "topic": "Checklist Kesiapan Implementasi Agentic AI di Workflow Perusahaan",
+            "topic": f"Checklist Evaluasi Implementasi Solusi AI di Workflow Enterprise",
             "format": "video",
             "pillar": pillars[0] if len(pillars) > 0 else "Edukasi Bisnis",
             "objective": "Edukasi & Engagement",
-            "target_segment": "Business Innovation Leads",
+            "target_segment": primary_audience,
             "slot": "18:30 WIB",
             "rationale": "Ajakan interaktif bagi para innovator perusahaan menjelang akhir pekan."
         },
         {
             "offset_days": 6,
-            "topic": "Mitos vs Fakta: Keamanan Data Cloud vs On-Premise untuk Perusahaan Finansial",
+            "topic": f"Mitos vs Fakta: Keamanan Data Solusi Cloud vs Server On-Premise",
             "format": "carousel",
             "pillar": pillars[1] if len(pillars) > 1 else pillars[0],
             "objective": "Edukasi & Menghilangkan Keraguan Prospek",
-            "target_segment": "Compliance & Security Officers",
+            "target_segment": primary_audience,
             "slot": "10:00 WIB",
-            "rationale": "Format komparasi visual yang meluruskan persepsi umum industri perbankan."
+            "rationale": "Format komparasi visual yang meluruskan persepsi umum industri."
         },
         {
             "offset_days": 7,
-            "topic": "Refleksi Mingguan: Mengapa Sederhana Lebih Baik dalam Desain Arsitektur Sistem",
+            "topic": f"Refleksi Mingguan: Mengapa Kestabilan Sistem Lebih Penting dari Fitur Berlebihan",
             "format": "carousel",
             "pillar": pillars[2] if len(pillars) > 2 else pillars[0],
             "objective": "Community Engagement & Employer Branding",
-            "target_segment": "Praktisi & Komunitas Tech",
+            "target_segment": primary_audience,
             "slot": "16:00 WIB",
-            "rationale": "Konten santai bernas untuk membangun relasi dengan talenta dan komunitas."
+            "rationale": "Konten bernas untuk membangun relasi dengan talenta dan komunitas profesional."
         }
     ]
 
