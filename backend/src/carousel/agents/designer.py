@@ -257,6 +257,9 @@ def run(plan: dict, brand: dict, out_dir, on_step=print, *, ctx: RunContext | No
             )
             meta["role"] = role
             meta["index"] = i
+            meta.setdefault("issues", [])
+            meta.setdefault("dom_issues", [])
+            meta.setdefault("path", str(out_dir / f"slide_{i:02d}.jpg"))
         else:
             meta = compositor.render_slide(role, s["headline"], s.get("subtext", ""), photo, brand,
                                            out_dir / f"slide_{i:02d}.jpg", index=i, total=total, step_no=step_no)

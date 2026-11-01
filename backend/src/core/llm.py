@@ -18,11 +18,15 @@ class BudgetExceeded(RuntimeError):
 
 
 def _is_network_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, RateLimitError):
+        return False
     if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError, ConnectionError, requests.Timeout, requests.ConnectionError)):
         return True
     if isinstance(exc, APIStatusError):
-        # Retry server error (500, 502, 503) maupun 429 atau 408
-        return exc.status_code >= 500 or exc.status_code in (408, 429, 520, 524)
+        # Rate limit 429 should rotate keys immediately, not retry on the same exhausted key
+        if exc.status_code == 429:
+            return False
+        return exc.status_code >= 500 or exc.status_code in (408, 520, 524)
     return False
 
 

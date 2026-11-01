@@ -100,7 +100,7 @@ class Renderer:
     def __enter__(self) -> "Renderer":
         self._pw = sync_playwright().start()
         try:
-            self._browser = self._pw.chromium.launch(args=["--no-sandbox", "--font-render-hinting=none"])
+            self._browser = self._pw.chromium.launch(args=["--no-sandbox", "--font-render-hinting=none", "--allow-file-access-from-files"])
         except Exception as exc:  # noqa: BLE001 - dibungkus dengan pesan yang jelas, lalu di-raise
             self._pw.stop()
             raise RenderError(f"Chromium gagal dijalankan (sudah 'playwright install chromium'?): {exc}") from exc

@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
+  Building2,
+  Calendar,
+  BarChart3,
+  TrendingUp,
   Sparkles, 
   Layers, 
   Video, 
@@ -11,13 +15,10 @@ import {
   Eye, 
   ChevronLeft, 
   ChevronRight, 
-  Share2, 
   DollarSign, 
   Zap, 
   RefreshCw,
-  FolderOpen,
   Image as ImageIcon,
-  Cpu,
   Settings,
   Upload,
   Phone,
@@ -190,6 +191,27 @@ export default function App() {
   useEffect(() => {
     fetchAssets(assetFilter);
   }, [assetFilter]);
+
+  // Enterprise, Strategy, & Analytics States (FEATURE-01, FEATURE-02, FEATURE-03)
+  const [enterpriseProfile, setEnterpriseProfile] = useState(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [strategyCalendar, setStrategyCalendar] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Load Enterprise data on tab change
+  useEffect(() => {
+    if (activeTab === 'enterprise') {
+      api.getEnterpriseProfile().then(setEnterpriseProfile).catch(console.error);
+    } else if (activeTab === 'strategy') {
+      setCalendarLoading(true);
+      api.getStrategyCalendar().then(data => setStrategyCalendar(data.items || [])).catch(console.error).finally(() => setCalendarLoading(false));
+    } else if (activeTab === 'analytics') {
+      setAnalyticsLoading(true);
+      api.getAnalyticsDashboard().then(setAnalyticsData).catch(console.error).finally(() => setAnalyticsLoading(false));
+    }
+  }, [activeTab]);
 
   // Riwayat run: muat ulang saat filter berubah, tab dibuka, atau sebuah run selesai
   useEffect(() => {
@@ -530,6 +552,30 @@ export default function App() {
         {/* Tab Navigation */}
         <div className="flex items-center bg-gray-900 border border-gray-800 rounded-lg p-1 text-xs font-medium">
           <button
+            onClick={() => setActiveTab('enterprise')}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition ${
+              activeTab === 'enterprise' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" /> Profil Enterprise
+          </button>
+          <button
+            onClick={() => setActiveTab('strategy')}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition ${
+              activeTab === 'strategy' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" /> Strategi & Kalender
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition ${
+              activeTab === 'analytics' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" /> Analytics & Loop
+          </button>
+          <button
             onClick={() => setActiveTab('generator')}
             className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition ${
               activeTab === 'generator' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
@@ -598,6 +644,333 @@ export default function App() {
           }`}>
             <span>{statusMessage.text}</span>
             <button onClick={() => setStatusMessage(null)} className="font-bold underline ml-4">Tutup</button>
+          </div>
+        )}
+
+        
+        {/* TAB: ENTERPRISE PROFILE (FEATURE-01) */}
+        {activeTab === 'enterprise' && enterpriseProfile && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-emerald-400" /> Profil Konteks Enterprise
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Konteks operasional resmi perusahaan yang menjadi landasan kepatuhan agent AI dalam riset dan pembuatan konten.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="px-3 py-1 bg-emerald-950/80 border border-emerald-800 text-emerald-400 rounded-lg text-xs font-semibold">
+                  Kelengkapan: {enterpriseProfile.completeness_score}%
+                </span>
+                <button
+                  onClick={async () => {
+                    setProfileSaving(true);
+                    try {
+                      await api.updateEnterpriseProfile(enterpriseProfile);
+                      alert('Profil Enterprise berhasil diperbarui!');
+                    } catch (err) {
+                      alert(err.message);
+                    } finally {
+                      setProfileSaving(false);
+                    }
+                  }}
+                  disabled={profileSaving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition"
+                >
+                  {profileSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Simpan Perubahan
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-300 block mb-1">Nama Perusahaan</label>
+                  <input
+                    type="text"
+                    value={enterpriseProfile.company_name || ''}
+                    onChange={(e) => setEnterpriseProfile({ ...enterpriseProfile, company_name: e.target.value })}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-300 block mb-1">Industri & Bidang Usaha</label>
+                  <input
+                    type="text"
+                    value={enterpriseProfile.industry || ''}
+                    onChange={(e) => setEnterpriseProfile({ ...enterpriseProfile, industry: e.target.value })}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-300 block mb-1">Deskripsi Perusahaan (Mission & Value Proposition)</label>
+                  <textarea
+                    rows={4}
+                    value={enterpriseProfile.description || ''}
+                    onChange={(e) => setEnterpriseProfile({ ...enterpriseProfile, description: e.target.value })}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-300 block mb-1">Tone of Voice Resmi</label>
+                  <input
+                    type="text"
+                    value={enterpriseProfile.tone || ''}
+                    onChange={(e) => setEnterpriseProfile({ ...enterpriseProfile, tone: e.target.value })}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 space-y-2">
+                  <span className="text-xs font-semibold text-emerald-400 block">Produk & Layanan Unggulan:</span>
+                  {(enterpriseProfile.products_services || []).map((p, idx) => (
+                    <div key={idx} className="border-b border-gray-800/80 pb-2 text-xs">
+                      <strong className="text-gray-200 block">{p.name}</strong>
+                      <span className="text-gray-400 block">{p.desc}</span>
+                      <span className="text-emerald-400 text-[11px] block mt-0.5">Value: {p.value_prop}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 space-y-1">
+                  <span className="text-xs font-semibold text-amber-400 block">Batasan & Brand Rules (Kepatuhan):</span>
+                  <ul className="list-disc list-inside text-xs text-gray-300 space-y-1">
+                    {(enterpriseProfile.brand_rules || []).map((r, idx) => (
+                      <li key={idx}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-4 text-xs space-y-1 text-gray-400">
+                  <span className="font-semibold text-gray-300 block">Approval & Contact Info:</span>
+                  <div>Workflow: <span className="text-gray-200">{enterpriseProfile.approval_workflow?.default_mode || 'manual_review'}</span></div>
+                  <div>Website: <span className="text-gray-200">{enterpriseProfile.contact_info?.website || '-'}</span></div>
+                  <div>Email: <span className="text-gray-200">{enterpriseProfile.contact_info?.email || '-'}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: STRATEGY & CONTENT CALENDAR (FEATURE-02) */}
+        {activeTab === 'strategy' && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-emerald-400" /> Kalender Strategi Konten 7 Hari
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Distribusi pilar konten, format rekomendasi (Carousel / Reels), dan alur persetujuan terstruktur sebelum masuk ke tahap render.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  setCalendarLoading(true);
+                  try {
+                    const data = await api.getStrategyCalendar(true);
+                    setStrategyCalendar(data.items || []);
+                  } catch (err) {
+                    alert(err.message);
+                  } finally {
+                    setCalendarLoading(false);
+                  }
+                }}
+                disabled={calendarLoading}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${calendarLoading ? 'animate-spin' : ''}`} />
+                Regenerate Kalender Baru
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {strategyCalendar.map((item) => (
+                <div key={item.id} className="bg-gray-950 border border-gray-800 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-gray-800 text-gray-300 rounded text-[11px] font-mono">
+                        {item.plan_date} | {item.scheduled_slot}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        item.format === 'video' ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-blue-950 text-blue-300 border border-blue-800'
+                      }`}>
+                        {item.format === 'video' ? 'Reels' : 'Carousel'}
+                      </span>
+                      <span className="px-2 py-0.5 bg-gray-800 text-emerald-400 rounded text-[11px]">
+                        {item.content_pillar}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        item.status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+                        item.status === 'running' ? 'bg-blue-950 text-blue-400 border border-blue-800 animate-pulse' :
+                        item.status === 'rejected' ? 'bg-red-950 text-red-400 border border-red-800' :
+                        'bg-amber-950 text-amber-300 border border-amber-800'
+                      }`}>
+                        {item.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <h3 className="text-sm font-bold text-gray-200">{item.topic}</h3>
+                    <p className="text-xs text-gray-400">
+                      <strong>Objektif:</strong> {item.objective} | <strong>Target:</strong> {item.target_segment}
+                    </p>
+                    <p className="text-[11px] text-gray-500 italic">
+                      {item.rationale}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end md:self-center">
+                    {item.status === 'draft' && (
+                      <>
+                        <button
+                          onClick={async () => {
+                            await api.updateStrategyItem(item.id, { status: 'approved' });
+                            setStrategyCalendar(cal => cal.map(c => c.id === item.id ? { ...c, status: 'approved' } : c));
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await api.updateStrategyItem(item.id, { status: 'rejected' });
+                            setStrategyCalendar(cal => cal.map(c => c.id === item.id ? { ...c, status: 'rejected' } : c));
+                          }}
+                          className="px-3 py-1.5 bg-gray-800 hover:bg-red-900/60 text-gray-400 hover:text-red-300 rounded-lg text-xs font-semibold transition"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    {item.status === 'approved' && (
+                      <button
+                        onClick={async () => {
+                          const res = await api.generateFromStrategyItem(item.id);
+                          setCurrentRunId(res.run_id);
+                          setActiveTab('generator');
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Generate Post Ini
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: ANALYTICS & CLOSED FEEDBACK LOOP (FEATURE-03) */}
+        {activeTab === 'analytics' && analyticsData && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-emerald-400" /> Analisis Performa & Feedback Loop
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Menganalisis hasil postingan terdahulu untuk mengekstrak insight konkret yang otomatis menyesuaikan strategi kalender berikutnya.
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="px-2.5 py-1 bg-amber-950/80 border border-amber-800 text-amber-300 rounded text-[11px] font-semibold">
+                  {analyticsData.summary.is_simulated ? 'Data Sumber: Simulasi Transparan GTNIC' : 'Data Sumber: Instagram API Nyata'}
+                </span>
+                <span className="block text-[10px] text-gray-500 mt-1">Sinkronisasi terakhir: {analyticsData.summary.last_sync ? fmtTime(analyticsData.summary.last_sync) : '-'}</span>
+              </div>
+            </div>
+
+            {/* Metrik Utama */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-4">
+                <span className="text-xs text-gray-400 block">Total Post Terpantau</span>
+                <strong className="text-xl text-gray-100 font-mono mt-1 block">{analyticsData.summary.total_posts_tracked}</strong>
+              </div>
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-4">
+                <span className="text-xs text-gray-400 block">Total Jangkauan (Reach)</span>
+                <strong className="text-xl text-emerald-400 font-mono mt-1 block">{analyticsData.summary.total_reach.toLocaleString('id-ID')}</strong>
+              </div>
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-4">
+                <span className="text-xs text-gray-400 block">Total Interaksi (Engagement)</span>
+                <strong className="text-xl text-blue-400 font-mono mt-1 block">{analyticsData.summary.total_engagement.toLocaleString('id-ID')}</strong>
+              </div>
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-4">
+                <span className="text-xs text-gray-400 block">Total Simpanan (Saves)</span>
+                <strong className="text-xl text-purple-400 font-mono mt-1 block">{analyticsData.summary.total_saves.toLocaleString('id-ID')}</strong>
+              </div>
+            </div>
+
+            {/* INSIGHTS (Closed Feedback Loop) */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" /> Actionable Insights (Terkoneksi ke Strategi Baru)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(analyticsData.insights || []).map((ins) => (
+                  <div key={ins.id} className="bg-gray-950 border border-emerald-900/40 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-400">{ins.title}</span>
+                      <span className="px-2 py-0.5 bg-emerald-950 text-emerald-300 rounded text-[10px] font-semibold">
+                        Confidence: {ins.confidence.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300">{ins.observation}</p>
+                    <div className="bg-gray-900/90 rounded p-2.5 text-xs text-emerald-300 border border-emerald-800/40">
+                      <strong>Rekomendasi Tindakan:</strong> {ins.recommended_action}
+                    </div>
+                    <div className="text-[11px] text-gray-500 pt-1 flex items-center justify-between">
+                      <span>Diterapkan pada Kalender: {ins.applied_to_strategy ? 'Ya, terintegrasi di Slot Kalender' : 'Belum'}</span>
+                      <span>{ins.created_at}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Tabel Postingan */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-gray-200">Riwayat Metrik Tiap Post</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-gray-300">
+                  <thead className="bg-gray-950 border-b border-gray-800 text-gray-400 font-semibold">
+                    <tr>
+                      <th className="p-3">Tanggal</th>
+                      <th className="p-3">Topik & Format</th>
+                      <th className="p-3">Pilar</th>
+                      <th className="p-3 text-right">Reach</th>
+                      <th className="p-3 text-right">Likes</th>
+                      <th className="p-3 text-right">Komen</th>
+                      <th className="p-3 text-right">Shares</th>
+                      <th className="p-3 text-right">Saves</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60 bg-gray-950/40">
+                    {(analyticsData.posts || []).map((p) => (
+                      <tr key={p.id} className="hover:bg-gray-900/60 transition">
+                        <td className="p-3 font-mono text-gray-400">{p.date}</td>
+                        <td className="p-3">
+                          <div className="font-semibold text-gray-200">{p.topic}</div>
+                          <span className="text-[11px] text-gray-500 uppercase">{p.format}</span>
+                        </td>
+                        <td className="p-3 text-gray-400">{p.pillar}</td>
+                        <td className="p-3 text-right font-mono text-emerald-400">{p.reach.toLocaleString('id-ID')}</td>
+                        <td className="p-3 text-right font-mono">{p.likes}</td>
+                        <td className="p-3 text-right font-mono">{p.comments}</td>
+                        <td className="p-3 text-right font-mono">{p.shares}</td>
+                        <td className="p-3 text-right font-mono text-purple-400 font-bold">{p.saves}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 

@@ -11,7 +11,7 @@ from src.carousel.render.renderer import Renderer
 from src.carousel.tools import qc_dom
 
 ROOT = Path(__file__).resolve().parents[1]
-FIX = ROOT / "src" / "layouts" / "_fixtures"
+FIX = ROOT / "src" / "carousel" / "layouts" / "_fixtures"
 BRAND = json.loads((ROOT / "config" / "brand.json").read_text(encoding="utf-8"))
 BATCH2 = {"cover_teks_belakang_subjek", "cover_echo_blur", "cover_pose_lelucon",
           "cover_skala_objek", "cover_dialog_meme", "cover_pertanyaan_wajah_crop"}

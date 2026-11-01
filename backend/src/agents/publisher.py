@@ -13,7 +13,8 @@ from src import config
 from src.core.credentials import CredentialExpiredError, ensure_instagram_credentials
 from src.core.db import Publication, SessionLocal, sessionmaker
 from src.core.events import EventEmitter
-from src.tools import asset_library, hosting, instagram
+from src.carousel.tools import asset_library
+from src.tools import hosting, instagram
 
 REQUIRED_ENV = ["IG_TOKEN", "IG_USER_ID", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
 PUBLISHED_FILE = config.OUTPUT_DIR / "published.json"

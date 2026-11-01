@@ -19,3 +19,4 @@ uvicorn>=0.30.0
 edge-tts>=7.0.0
 moviepy>=2.2.0
 imageio[ffmpeg]>=2.35.0
+python-multipart==0.0.20

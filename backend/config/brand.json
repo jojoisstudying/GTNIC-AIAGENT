@@ -1,19 +1,20 @@
 {
-  "company": "Resilience",
-  "industry": "Pengembangan web & mobile app, desain UI/UX, audit sistem, dan pemasaran digital.",
-  "description": "mumnya merujuk pada beberapa entitas atau layanan di Indonesia, dengan yang paling umum adalah penyedia jasa pengembangan solusi digital/IT serta perusahaan distribusi.",
-  "audience": "",
-  "tone": "profesional, ringkas, menarik, Bahasa Indonesia",
+  "company": "Resilience Enterprise AI",
+  "industry": "Pengembangan Web & Mobile App, Audit Keamanan Sistem, dan Solusi AI Bisnis",
+  "description": "Penyedia solusi otomasi AI tingkat lanjut untuk industri.",
+  "audience": "C-Level, VP of Tech, CTO, Head of IT & Operations",
+  "tone": "profesional, lugas, visioner, berbasis data, Bahasa Indonesia",
   "content_pillars": [
-    "edukasi industri",
-    "tips praktis",
-    "studi kasus",
-    "kabar terbaru"
+    "Edukasi Otomasi AI",
+    "Keamanan Sistem & Siber",
+    "Studi Kasus & Dampak Bisnis",
+    "Tips Arsitektur & Engineering"
   ],
   "rules": [
-    "Gunakan data yang valid",
-    "Bahasa komunikatif dan lugas",
-    "Maksimal 8 hashtag relevan"
+    "Selalu sertakan data atau metodologi yang teruji; dilarang klaim bombastis tanpa bukti",
+    "Gunakan istilah resmi teknologi dalam Bahasa Indonesia yang komunikatif",
+    "Dilarang membocorkan nama klien tanpa izin; samarkan sebagai 'Perusahaan Manufaktur Nasional'",
+    "CTA resmi harus mengarahkan ke konsultasi atau diskusi di kolom komentar"
   ],
   "available_poses": [
     "senyum",
@@ -24,18 +25,18 @@
     "tangan_disilang"
   ],
   "colors": {
-    "primary": "#1a5fb4",
-    "secondary": "#c061cb",
-    "accent": "#f5c211",
+    "primary": "#0f172a",
+    "secondary": "#f8fafc",
+    "accent": "#38bdf8",
     "text_on_primary": "#ffffff"
   },
   "font_path": "assets/fonts/DejaVuSans-Bold.ttf",
   "logo_path": "assets/logo.png",
   "tokens": {
-    "bg": "#1a5fb4",
-    "light_bg": "#c061cb",
+    "bg": "#0f172a",
+    "light_bg": "#f8fafc",
     "fg": "#ffffff",
-    "accent": "#f5c211"
+    "accent": "#38bdf8"
   },
   "fonts": {
     "display": {
@@ -55,14 +56,14 @@
     }
   },
   "chrome": {
-    "brand_text": "Resilience",
+    "brand_text": "Resilience Digital",
     "header": true,
     "page_counter": true,
     "footer": {
       "show": true,
       "lines": [
-        "@gtnic",
-        "089716782567"
+        "@resiliencedigital",
+        "contact@resilience.co.id"
       ],
       "qr_path": null
     },

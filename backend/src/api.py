@@ -10,17 +10,25 @@ Provides endpoints for frontend dashboard integration:
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, desc, func
 
-from src import config, pipeline
+from src import config
+from src.carousel import pipeline
+from src.core import auth
+from src.core.db import EnterpriseProfile, ContentStrategyItem, PostAnalytics, AnalyticsInsight
+from src.core.strategy import (
+    get_or_create_enterprise_profile, calculate_profile_completeness,
+    generate_7day_strategy, seed_demo_analytics_data
+)
+
 from src.core.context import create_run_context
 from src.core.db import Run, Plan, Design, Event, Publication, SessionLocal
-from src.layouts import registry
+from src.carousel.layouts import registry
 
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
@@ -110,7 +118,7 @@ def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design:
 
 def _execute_resume_task(run_id: str):
     """Worker task to resume run after assets have been approved."""
-    from src.agents import designer
+    from src.carousel.agents import designer
     with SessionLocal() as session:
         run = session.get(Run, run_id)
         if not run:
@@ -186,7 +194,7 @@ def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
     Kegagalan generate tidak boleh membuat run stuck 'running': run dikembalikan ke
     'awaiting_assets' dengan pesan error supaya bisa dicoba lagi.
     """
-    from src.tools import cloudflare_pose_generator
+    from src.carousel.tools import cloudflare_pose_generator
 
     ctx = None
     generated = False
@@ -286,7 +294,7 @@ def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
 def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: bool = True):
     """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
     import asyncio
-    from src.video.pipeline import VideoPipeline
+    from src.reels.pipeline import VideoPipeline
     from src.video.research_cache import make_researcher
 
     brand = pipeline.load_brand()
@@ -357,6 +365,10 @@ def get_brand_profile():
         brand_data["has_talent_ref"] = ref_path.exists()
         brand_data["talent_ref_url"] = "/static/data/people/operator_01/reference.png" if ref_path.exists() else None
         return brand_data
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -407,8 +419,36 @@ def update_brand_profile(req: BrandUpdateRequest):
 
         brand_file.write_text(json.dumps(brand_data, indent=2, ensure_ascii=False), encoding="utf-8")
         return {"status": "ok", "message": "Brand profile berhasil diperbarui", "brand": brand_data}
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _validate_image_file(file: UploadFile, max_mb: float = 10.0, allowed_formats=('PNG', 'JPEG', 'WEBP')) -> bytes:
+    """Validates upload size and decodes image bytes to guarantee safe, valid images (BUG-06)."""
+    import io
+    from PIL import Image
+
+    contents = file.file.read()
+    if len(contents) > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"Ukuran file melebihi batas maksimum {max_mb:.0f} MB")
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="File kosong tidak dapat diupload")
+    try:
+        im = Image.open(io.BytesIO(contents))
+        im.verify()
+        im = Image.open(io.BytesIO(contents))
+        fmt = (im.format or "").upper()
+        if fmt not in allowed_formats:
+            raise HTTPException(status_code=400, detail=f"Format gambar '{fmt}' tidak didukung; gunakan {allowed_formats}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File gambar tidak valid atau rusak: {e}")
+    return contents
 
 
 @app.post("/api/v1/brand/logo")
@@ -419,7 +459,7 @@ def upload_brand_logo(file: UploadFile = File(...)):
         assets_dir.mkdir(parents=True, exist_ok=True)
         logo_path = assets_dir / "logo.png"
 
-        contents = file.file.read()
+        contents = _validate_image_file(file, max_mb=5.0)
         logo_path.write_bytes(contents)
 
         # Update brand.json logo_path
@@ -430,6 +470,10 @@ def upload_brand_logo(file: UploadFile = File(...)):
             brand_file.write_text(json.dumps(brand_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
         return {"status": "ok", "message": "Logo berhasil disimpan", "path": "assets/logo.png"}
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -475,7 +519,7 @@ def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
     Tiap item memuat `format` (carousel|video), `pending_review_count` (pose yang
     masih menunggu keputusan *saat ini*), serta `thumbnail_url` / `video_url`.
     """
-    from src.tools import asset_library
+    from src.carousel.tools import asset_library
 
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -608,7 +652,7 @@ def get_run_status(run_id: str):
                 # Status terkini dari library (snapshot di design bisa sudah usang
                 # kalau aset sudah di-approve/reject setelah design dibuat)
                 try:
-                    from src.tools import asset_library as _al
+                    from src.carousel.tools import asset_library as _al
                     live = _al.get_asset(pr.get("id")) if pr.get("id") is not None else None
                     pr_copy["status"] = live["status"] if live else "missing"
                 except Exception:
@@ -768,7 +812,7 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
 @app.post("/api/v1/assets/{asset_id}/review")
 def review_pending_asset(asset_id: int, status: str = "approved"):
     """Menyetujui (approve) atau menolak (reject) pose hasil generate Cloudflare."""
-    from src.tools import asset_library, cloudflare_pose_generator
+    from src.carousel.tools import asset_library, cloudflare_pose_generator
     if status not in {"approved", "rejected"}:
         raise HTTPException(status_code=400, detail="Status harus 'approved' atau 'rejected'")
 
@@ -789,6 +833,10 @@ def review_pending_asset(asset_id: int, status: str = "approved"):
             "decision": status,
             "message": f"Asset ID {resolved_id} berhasil di-{status}."
         }
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -826,7 +874,7 @@ def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
     - Jika tidak ada run yang menunggu: hanya membuat kandidat baru di Asset Library.
     Proses berjalan di background (generate gambar + hapus background bisa >1 menit).
     """
-    from src.tools import asset_library, cloudflare_pose_generator
+    from src.carousel.tools import asset_library, cloudflare_pose_generator
 
     asset = asset_library.get_asset(asset_id)
     if not asset:
@@ -888,13 +936,16 @@ def upload_talent_reference(
     description: str = Form("Foto mentah orang tanpa pose sebagai referensi AI")
 ):
     """Upload mentahan foto orang tanpa pose untuk referensi Cloudflare Workers AI."""
-    from src.tools.asset_library import add_asset
+    from src.carousel.tools.asset_library import add_asset
     try:
         people_dir = config.ROOT / "data" / "people" / person_id
         people_dir.mkdir(parents=True, exist_ok=True)
         dest_path = people_dir / "reference.png"
 
-        contents = file.file.read()
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', person_id):
+            raise HTTPException(status_code=400, detail="person_id hanya boleh alfanumerik, underscore, atau tanda hubung (-)")
+        contents = _validate_image_file(file, max_mb=10.0)
         dest_path.write_bytes(contents)
 
         # Daftarkan juga ke asset_library agar langsung muncul di Asset Library UI
@@ -914,6 +965,10 @@ def upload_talent_reference(
             "asset_id": asset_id,
             "person_id": person_id
         }
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -949,7 +1004,7 @@ def list_system_assets(status: Optional[str] = None):
     Respons selalu menyertakan `counts` per status (tidak terpengaruh filter) untuk badge UI.
     """
     from collections import Counter
-    from src.tools.asset_library import list_assets
+    from src.carousel.tools.asset_library import list_assets
 
     wanted = None
     if status and status != "all":
@@ -989,6 +1044,10 @@ def list_system_assets(status: Optional[str] = None):
         }
     except HTTPException:
         raise
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1009,3 +1068,239 @@ def create_video_run(req: VideoRunRequest, background_tasks: BackgroundTasks):
         "topic": req.topic,
         "message": "AI Agent sedang memproses naskah, voiceover TTS, B-roll, dan compositing video."
     }
+
+# ===========================================================================
+# ENTERPRISE PROFILE & ONBOARDING (FEATURE-01)
+# ===========================================================================
+
+class EnterpriseProfileUpdate(BaseModel):
+    company_name: str
+    industry: str
+    description: str
+    products_services: List[Dict[str, Any]] = Field(default_factory=list)
+    target_audience: Dict[str, Any] = Field(default_factory=dict)
+    business_goals: List[str] = Field(default_factory=list)
+    tone: str = "profesional, terpercaya"
+    content_pillars: List[str] = Field(default_factory=list)
+    brand_rules: List[str] = Field(default_factory=list)
+    contact_info: Dict[str, Any] = Field(default_factory=dict)
+    approval_workflow: Dict[str, Any] = Field(default_factory=dict)
+    operating_preferences: Dict[str, Any] = Field(default_factory=dict)
+
+
+@app.get("/api/v1/enterprise/profile")
+def get_enterprise_profile_endpoint():
+    """Mengambil profil lengkap perusahaan untuk konteks operasional agent."""
+    with SessionLocal() as session:
+        prof = get_or_create_enterprise_profile(session)
+        data = {
+            "id": prof.id,
+            "company_name": prof.company_name,
+            "industry": prof.industry,
+            "description": prof.description,
+            "products_services": json.loads(prof.products_services_json or "[]"),
+            "target_audience": json.loads(prof.target_audience_json or "{}"),
+            "business_goals": json.loads(prof.business_goals_json or "[]"),
+            "tone": prof.tone,
+            "content_pillars": json.loads(prof.content_pillars_json or "[]"),
+            "brand_rules": json.loads(prof.brand_rules_json or "[]"),
+            "contact_info": json.loads(prof.contact_info_json or "{}"),
+            "approval_workflow": json.loads(prof.approval_workflow_json or "{}"),
+            "operating_preferences": json.loads(prof.operating_preferences_json or "{}"),
+            "completeness_score": prof.completeness_score,
+            "updated_at": prof.updated_at.isoformat() if prof.updated_at else None
+        }
+        return data
+
+
+@app.put("/api/v1/enterprise/profile")
+def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
+    """Memperbarui profil & batasan perusahaan tanpa edit file JSON manual."""
+    with SessionLocal() as session:
+        prof = get_or_create_enterprise_profile(session)
+        prof.company_name = req.company_name.strip()
+        prof.industry = req.industry.strip()
+        prof.description = req.description.strip()
+        prof.products_services_json = json.dumps(req.products_services, ensure_ascii=False)
+        prof.target_audience_json = json.dumps(req.target_audience, ensure_ascii=False)
+        prof.business_goals_json = json.dumps(req.business_goals, ensure_ascii=False)
+        prof.tone = req.tone.strip()
+        prof.content_pillars_json = json.dumps(req.content_pillars, ensure_ascii=False)
+        prof.brand_rules_json = json.dumps(req.brand_rules, ensure_ascii=False)
+        prof.contact_info_json = json.dumps(req.contact_info, ensure_ascii=False)
+        prof.approval_workflow_json = json.dumps(req.approval_workflow, ensure_ascii=False)
+        prof.operating_preferences_json = json.dumps(req.operating_preferences, ensure_ascii=False)
+
+        score = calculate_profile_completeness(req.model_dump())
+        prof.completeness_score = score
+        prof.updated_at = datetime.now(timezone.utc)
+
+        # Sinkronkan ringkasan dasar ke config/brand.json
+        try:
+            brand_file = config.ROOT / "config" / "brand.json"
+            if brand_file.exists():
+                bdata = json.loads(brand_file.read_text(encoding="utf-8"))
+                bdata["company"] = prof.company_name
+                bdata["industry"] = prof.industry
+                bdata["description"] = prof.description
+                bdata["tone"] = prof.tone
+                bdata["content_pillars"] = req.content_pillars
+                bdata["rules"] = req.brand_rules
+                if req.target_audience.get("primary_segment"):
+                    bdata["audience"] = req.target_audience["primary_segment"]
+                brand_file.write_text(json.dumps(bdata, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+        session.commit()
+        return {"status": "ok", "message": "Profil Enterprise berhasil diperbarui", "completeness_score": score}
+
+
+# ===========================================================================
+# STRATEGY & CONTENT CALENDAR (FEATURE-02)
+# ===========================================================================
+
+class StrategyItemAction(BaseModel):
+    status: Optional[str] = None
+    plan_date: Optional[str] = None
+    scheduled_slot: Optional[str] = None
+    approval_notes: Optional[str] = None
+
+
+@app.get("/api/v1/strategy/calendar")
+def get_strategy_calendar_endpoint(regenerate: bool = False):
+    """Melihat kalender rencana konten 7 hari lengkap dengan pilar, format, dan status persetujuan."""
+    with SessionLocal() as session:
+        items = generate_7day_strategy(session, reset=regenerate)
+        return {
+            "total_items": len(items),
+            "items": [
+                {
+                    "id": it.id,
+                    "plan_date": it.plan_date,
+                    "topic": it.topic,
+                    "format": it.format,
+                    "content_pillar": it.content_pillar,
+                    "objective": it.objective,
+                    "target_segment": it.target_segment,
+                    "scheduled_slot": it.scheduled_slot,
+                    "rationale": it.rationale,
+                    "status": it.status,
+                    "approval_notes": it.approval_notes,
+                    "run_id": it.run_id,
+                    "feedback_insight_id": it.feedback_insight_id
+                }
+                for it in items
+            ]
+        }
+
+
+@app.patch("/api/v1/strategy/calendar/{item_id}")
+def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
+    """Approve, reject, reschedule, atau edit item kalender konten."""
+    with SessionLocal() as session:
+        item = session.get(ContentStrategyItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item strategi tidak ditemukan")
+
+        if req.status:
+            valid_statuses = {"draft", "awaiting_approval", "approved", "scheduled", "rejected", "published"}
+            if req.status not in valid_statuses:
+                raise HTTPException(status_code=400, detail=f"Status tidak valid: {req.status}")
+            item.status = req.status
+
+        if req.plan_date:
+            item.plan_date = req.plan_date
+        if req.scheduled_slot:
+            item.scheduled_slot = req.scheduled_slot
+        if req.approval_notes is not None:
+            item.approval_notes = req.approval_notes
+
+        item.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"status": "ok", "item_id": item.id, "new_status": item.status}
+
+
+@app.post("/api/v1/strategy/calendar/{item_id}/generate")
+def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks):
+    """Memulai pipeline post otomatis langsung dari item strategi kalender yang telah disetujui."""
+    with SessionLocal() as session:
+        item = session.get(ContentStrategyItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item strategi tidak ditemukan")
+
+        brand = pipeline.load_brand()
+        ctx = create_run_context(item.topic, brand)
+        run_id = ctx.run_id
+        ctx.close()
+
+        item.run_id = run_id
+        item.status = "running"
+        session.commit()
+
+        if item.format == "video":
+            background_tasks.add_task(_execute_video_pipeline_task, run_id, item.topic, 30, False)
+        else:
+            background_tasks.add_task(_execute_pipeline_task, run_id, item.topic, False, True)
+
+        return {"status": "running", "run_id": run_id, "strategy_item_id": item.id}
+
+
+# ===========================================================================
+# ANALYTICS & CLOSED FEEDBACK LOOP (FEATURE-03)
+# ===========================================================================
+
+@app.get("/api/v1/analytics/dashboard")
+def get_analytics_dashboard_endpoint():
+    """Mengambil data performa postingan dan rekomendasi insight berbasis metrik nyata/simulasi transparan."""
+    with SessionLocal() as session:
+        records = seed_demo_analytics_data(session)
+        insights = session.scalars(select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))).all()
+
+        total_reach = sum(r.reach for r in records)
+        total_likes = sum(r.likes for r in records)
+        total_saves = sum(r.saves for r in records)
+        total_comments = sum(r.comments for r in records)
+
+        return {
+            "summary": {
+                "total_posts_tracked": len(records),
+                "total_reach": total_reach,
+                "total_engagement": total_likes + total_saves + total_comments,
+                "total_saves": total_saves,
+                "data_source": records[0].source if records else "none",
+                "is_simulated": records[0].is_simulated if records else False,
+                "last_sync": records[0].data_timestamp.isoformat() if records else None
+            },
+            "posts": [
+                {
+                    "id": r.id,
+                    "topic": r.topic,
+                    "format": r.format,
+                    "pillar": r.content_pillar,
+                    "reach": r.reach,
+                    "impressions": r.impressions,
+                    "likes": r.likes,
+                    "comments": r.comments,
+                    "shares": r.shares,
+                    "saves": r.saves,
+                    "profile_visits": r.profile_visits,
+                    "permalink": r.permalink,
+                    "date": r.data_timestamp.strftime("%Y-%m-%d")
+                }
+                for r in records
+            ],
+            "insights": [
+                {
+                    "id": ins.id,
+                    "title": ins.title,
+                    "observation": ins.observation,
+                    "recommended_action": ins.recommended_action,
+                    "confidence": ins.confidence,
+                    "data_points": json.loads(ins.data_points_json or "{}"),
+                    "applied_to_strategy": ins.applied_to_strategy,
+                    "created_at": ins.created_at.strftime("%Y-%m-%d")
+                }
+                for ins in insights
+            ]
+        }

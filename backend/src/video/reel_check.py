@@ -61,7 +61,7 @@ def evaluate(props: Dict, streams: Dict[str, Optional[str]]) -> List[str]:
 
 def check_reel_compat(path: str) -> List[str]:
     """Daftar masalah (kosong = aman diunggah). Tidak pernah raise."""
-    from src.video.qc_video import inspect_media_file
+    from src.reels.tools.qc_video import inspect_media_file
     if not path or not os.path.isfile(path):
         return [f"file video tidak ditemukan: {path}"]
     props = inspect_media_file(path)

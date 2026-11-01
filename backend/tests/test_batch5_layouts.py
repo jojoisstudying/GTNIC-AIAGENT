@@ -30,7 +30,7 @@ def test_cta_layouts_have_no_fake_buttons() -> None:
     for s in registry.load_all().values():
         if s.meta.role != "cta":
             continue
-        html = (ROOT / "src" / "layouts" / s.id / "layout.html").read_text(encoding="utf-8").lower()
+        html = (ROOT / "src" / "carousel" / "layouts" / s.id / "layout.html").read_text(encoding="utf-8").lower()
         samples = json.dumps(s.samples, ensure_ascii=False).lower()
         for word in FORBIDDEN:
             assert word not in html and word not in samples, (s.id, word)

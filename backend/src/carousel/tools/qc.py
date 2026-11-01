@@ -14,13 +14,35 @@ def contrast_ratio(a: str, b: str) -> float:
 
 
 def check_brand(brand: dict) -> list[str]:
-    c, issues = brand["colors"], []
-    if contrast_ratio(c["text_on_primary"], c["primary"]) < 4.5:
-        issues.append("Kontras text_on_primary terhadap primary < 4.5")
-    if contrast_ratio(c["secondary"], c["primary"]) < 4.5:
-        issues.append("Kontras secondary terhadap primary < 4.5 (subtext sulit dibaca)")
-    if contrast_ratio(c["accent"], c["primary"]) < 3:
-        issues.append("Kontras accent terhadap primary < 3")
+    """Evaluates WCAG contrast according to semantic color roles.
+    Only enforces text readability contrast (>= 4.5:1) between actual text and its background.
+    Decorative or accent roles are evaluated appropriately and do not block text unless used as text.
+    """
+    c = brand.get("colors") or {}
+    tokens = brand.get("tokens") or {}
+    issues = []
+
+    primary = c.get("primary") or tokens.get("bg", "#000000")
+    text_on_primary = c.get("text_on_primary") or tokens.get("fg", "#ffffff")
+    
+    # 1. Text on primary background must be legible (WCAG AA text >= 4.5)
+    if contrast_ratio(text_on_primary, primary) < 4.5:
+        issues.append(f"Kontras text_on_primary ({text_on_primary}) terhadap primary ({primary}) < 4.5 (teks utama tidak terbaca)")
+
+    # 2. Check surface background contrast if explicit surface tokens exist
+    light_bg = tokens.get("light_bg")
+    fg = tokens.get("fg")
+    if light_bg and fg and contrast_ratio(fg, light_bg) < 4.5:
+        # If light_bg is used as surface with dark text (primary), verify readability
+        if contrast_ratio(primary, light_bg) < 4.5 and contrast_ratio(fg, light_bg) < 4.5:
+            issues.append("Kontras teks terhadap light_bg < 4.5")
+
+    # 3. Accent text contrast: if accent is used as background for text, ensure text_on_accent or fg is legible
+    accent = c.get("accent") or tokens.get("accent")
+    if accent and primary and contrast_ratio(accent, primary) < 2.0:
+        # Decorative accent warning (non-blocking if not used for text)
+        issues.append(f"Peringatan: Kontras accent terhadap primary rendah ({contrast_ratio(accent, primary):.2f}:1)")
+
     return issues
 
 

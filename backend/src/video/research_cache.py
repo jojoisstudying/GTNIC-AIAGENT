@@ -58,7 +58,7 @@ def make_researcher(ctx: Any, fresh: bool,
                     "error": "Riset live dimatikan dan belum ada riset tersimpan (24 jam) untuk topik ini"}
         fn = gather
         if fn is None:
-            from src.video.topic_research import gather_topic_research
+            from src.reels.agents.topic_research import gather_topic_research
             fn = gather_topic_research
         result = fn(topic, ctx=ctx)
         if result.get("ok"):

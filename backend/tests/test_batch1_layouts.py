@@ -14,7 +14,7 @@ from src.carousel.tools import qc_dom
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = json.loads((ROOT / "config" / "brand.json").read_text(encoding="utf-8"))
-FIX = ROOT / "src" / "layouts" / "_fixtures"
+FIX = ROOT / "src" / "carousel" / "layouts" / "_fixtures"
 EXPECTED = {"cover_judul_raksasa", "cover_foto_judul_bawah", "penjelasan_teks_ikon", "penjelasan_split_foto",
             "daftar_bernomor", "data_angka_besar", "perbandingan_dua_kolom", "cta_komen"}
 

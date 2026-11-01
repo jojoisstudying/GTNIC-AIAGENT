@@ -138,6 +138,86 @@ class CredentialStatus(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+
+class EnterpriseProfile(Base):
+    __tablename__ = "enterprise_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    industry: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    products_services_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    target_audience_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    business_goals_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    tone: Mapped[str] = mapped_column(String(128), nullable=False, default="profesional, terpercaya")
+    content_pillars_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    brand_rules_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    contact_info_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    approval_workflow_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    operating_preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    completeness_score: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class ContentStrategyItem(Base):
+    __tablename__ = "content_strategy_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_date: Mapped[str] = mapped_column(String(32), nullable=False)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    format: Mapped[str] = mapped_column(String(32), nullable=False, default="carousel")  # carousel | video
+    content_pillar: Mapped[str] = mapped_column(String(128), nullable=False)
+    objective: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_segment: Mapped[str] = mapped_column(String(128), nullable=False, default="Umum")
+    scheduled_slot: Mapped[str] = mapped_column(String(64), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    # status: draft | awaiting_approval | approved | scheduled | publishing | published | rejected
+    approval_notes: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    feedback_insight_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class PostAnalytics(Base):
+    __tablename__ = "post_analytics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    strategy_item_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    media_id: Mapped[str | None] = mapped_column(String(128))
+    permalink: Mapped[str | None] = mapped_column(Text)
+    format: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_pillar: Mapped[str] = mapped_column(String(128), nullable=False)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    reach: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    impressions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    likes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    shares: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    saves: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    profile_visits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="instagram_api")
+    is_simulated: Mapped[bool] = mapped_column(nullable=False, default=False)
+    data_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class AnalyticsInsight(Base):
+    __tablename__ = "analytics_insights"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    observation: Mapped[str] = mapped_column(Text, nullable=False)
+    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(32), nullable=False, default="high")  # high | medium | preliminary
+    data_points_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    applied_to_strategy: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
 def make_engine(url: str | None = None, **kwargs: Any) -> Engine:
     """Create an engine, ensuring the default local SQLite directory exists."""
     database_url = url or config.database_url()

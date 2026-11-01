@@ -268,7 +268,7 @@ def layout_subtitle_phrase(words: List[str], canvas_w: int = CANVAS_WIDTH, font_
         gap = max(round(_tw(font, " ")), 2 * pad_x + max(4, round(size * 0.1)))
         widths = [_tw(font, w) for w in words]
         total = sum(widths) + gap * max(len(words) - 1, 0)
-        if total <= max_total or size <= 32:
+        if total <= max_total or size <= 24:
             break
         size -= 2
 

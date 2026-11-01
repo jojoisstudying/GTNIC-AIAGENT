@@ -112,9 +112,9 @@ def test_video_checkbox_off_uses_cache_only_and_on_runs_live(env, monkeypatch):
         async def run_pipeline(self, topic, **_):
             raise RuntimeError("stop")
 
-    monkeypatch.setattr("src.video.pipeline.VideoPipeline", SpyPipeline)
+    monkeypatch.setattr("src.reels.pipeline.VideoPipeline", SpyPipeline)
     live_calls = []
-    monkeypatch.setattr("src.video.topic_research.gather_topic_research",
+    monkeypatch.setattr("src.reels.agents.topic_research.gather_topic_research",
                         lambda topic, ctx=None, **k: live_calls.append(topic) or {"ok": True, "context": "x", "sources": []})
 
     api._execute_video_pipeline_task(run_id, "topik tanpa cache", 30, False)
