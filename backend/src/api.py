@@ -742,10 +742,42 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
         if problems:
             raise HTTPException(status_code=400, detail="; ".join(problems))
         result = publisher.publish_reel(video["video_path"], caption, share_to_feed=share_to_feed, ctx=ctx)
+        is_ok = bool(result.get("media_id"))
+
+        # Link publication to calendar item status and record analytics tracking entry
+        if is_ok:
+            try:
+                with SessionLocal() as db_session:
+                    cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
+                    if cal_item:
+                        cal_item.status = "published"
+                    post_analytics = PostAnalytics(
+                        publication_id=None,
+                        media_id=result.get("media_id") or f"pub_reel_{run_row.id[:8]}",
+                        permalink=result.get("permalink") or f"https://instagram.com/reel/{run_row.id[:8]}",
+                        topic=run_row.topic,
+                        format="video",
+                        content_pillar="Keamanan Sistem & Siber",
+                        reach=0,
+                        impressions=0,
+                        likes=0,
+                        comments=0,
+                        shares=0,
+                        saves=0,
+                        profile_visits=0,
+                        source="live_instagram_tracking",
+                        is_simulated=False,
+                        data_timestamp=datetime.now(timezone.utc)
+                    )
+                    db_session.add(post_analytics)
+                    db_session.commit()
+            except Exception as e:
+                print(f"[PUBLISH REEL] Failed to update calendar/analytics state: {e}")
+
         return {
             "run_id": run_row.id,
             "format": "reel",
-            "status": "published" if result.get("media_id") else "failed",
+            "status": "published" if is_ok else "failed",
             "media_id": result.get("media_id"),
             "permalink": result.get("permalink"),
             "error": result.get("error"),
@@ -804,6 +836,39 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
         slide_paths = [s["path"] for s in design_data.get("slides", [])]
         result = publisher.publish(plan_data, slide_paths, ctx=ctx)
         is_ok = bool(result.get("ok")) or bool(result.get("media_id"))
+
+        # Link publication to calendar item status and record analytics tracking entry
+        if is_ok:
+            try:
+                with SessionLocal() as db_session:
+                    cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
+                    if cal_item:
+                        cal_item.status = "published"
+                    
+                    # Record analytics tracking entry connected to publication
+                    post_analytics = PostAnalytics(
+                        publication_id=None,
+                        media_id=result.get("media_id") or f"pub_{run_id[:8]}",
+                        permalink=result.get("permalink") or f"https://instagram.com/p/{run_id[:8]}",
+                        topic=run_row.topic,
+                        format="carousel",
+                        content_pillar=plan_data.get("content_pillar") or "Edukasi Bisnis",
+                        reach=0,
+                        impressions=0,
+                        likes=0,
+                        comments=0,
+                        shares=0,
+                        saves=0,
+                        profile_visits=0,
+                        source="live_instagram_tracking",
+                        is_simulated=False,
+                        data_timestamp=datetime.now(timezone.utc)
+                    )
+                    db_session.add(post_analytics)
+                    db_session.commit()
+            except Exception as e:
+                print(f"[PUBLISH] Failed to update calendar/analytics state: {e}")
+
         return {
             "run_id": run_id,
             "status": "published" if is_ok else "failed",
