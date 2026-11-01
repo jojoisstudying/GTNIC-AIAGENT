@@ -17,11 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, desc, func
 
-from src import config
-from src.carousel import pipeline
+from src import config, pipeline
 from src.core.context import create_run_context
 from src.core.db import Run, Plan, Design, Event, Publication, SessionLocal
-from src.carousel.layouts import registry
+from src.layouts import registry
 
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
@@ -61,7 +60,12 @@ class TriggerRunRequest(BaseModel):
 class VideoRunRequest(BaseModel):
     topic: str = Field(..., description="Topik video Reels / Shorts")
     target_duration: int = Field(30, ge=15, le=60, description="Target durasi video dalam detik (15-60)")
-    fresh: bool = Field(True, description="True untuk riset Tavily sebelum menulis naskah, False untuk tanpa riset")
+    fresh: bool = Field(True, description="True = riset fakta baru lewat Tavily; False = pakai riset tersimpan (24 jam) bila ada")
+
+
+class PublishOptions(BaseModel):
+    caption: Optional[str] = Field(None, description="Caption final (Reels). Kosong = pakai draf otomatis")
+    share_to_feed: bool = Field(True, description="Reels juga tampil di feed profil")
 
 
 class AssetUploadRequest(BaseModel):
@@ -106,7 +110,7 @@ def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design:
 
 def _execute_resume_task(run_id: str):
     """Worker task to resume run after assets have been approved."""
-    from src.carousel.agents import designer
+    from src.agents import designer
     with SessionLocal() as session:
         run = session.get(Run, run_id)
         if not run:
@@ -182,7 +186,7 @@ def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
     Kegagalan generate tidak boleh membuat run stuck 'running': run dikembalikan ke
     'awaiting_assets' dengan pesan error supaya bisa dicoba lagi.
     """
-    from src.carousel.tools import cloudflare_pose_generator
+    from src.tools import cloudflare_pose_generator
 
     ctx = None
     generated = False
@@ -282,20 +286,16 @@ def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
 def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: bool = True):
     """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
     import asyncio
-    from src.reels.pipeline import VideoPipeline
-    from src.reels.agents.topic_research import gather_topic_research
+    from src.video.pipeline import VideoPipeline
+    from src.video.research_cache import make_researcher
 
     brand = pipeline.load_brand()
     ctx = create_run_context(topic, brand, run_id=run_id)
     try:
-        ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video", "fresh": fresh})
+        ctx.emit("info", "run_started", step="video", detail={"topic": topic, "format": "video"})
         out_path = config.OUTPUT_DIR / "reels" / f"reels_{run_id}.mp4"
 
-        researcher_fn = (lambda t: gather_topic_research(t, ctx=ctx)) if fresh else None
-        vp = VideoPipeline(
-            context=ctx,
-            researcher=researcher_fn,
-        )
+        vp = VideoPipeline(context=ctx, researcher=make_researcher(ctx, fresh))
         result = asyncio.run(vp.run_pipeline(
             topic=topic,
             target_duration_sec=duration,
@@ -475,7 +475,7 @@ def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
     Tiap item memuat `format` (carousel|video), `pending_review_count` (pose yang
     masih menunggu keputusan *saat ini*), serta `thumbnail_url` / `video_url`.
     """
-    from src.carousel.tools import asset_library
+    from src.tools import asset_library
 
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -574,6 +574,19 @@ def get_run_status(run_id: str):
                 "scenes_count": design_data.get("scenes_count", 0),
                 "issues": design_data.get("issues", []),
             }
+            try:
+                from src.agents import publisher as _pub
+                video_preview["suggested_caption"] = _pub.default_video_caption(run_row.topic, pipeline.load_brand())
+            except Exception:  # noqa: BLE001 - saran caption bersifat opsional
+                video_preview["suggested_caption"] = run_row.topic
+
+        pub_row = session.scalars(
+            select(Publication).where(Publication.run_id == run_id).order_by(desc(Publication.id))
+        ).first()
+        publication = {
+            "status": pub_row.status, "media_id": pub_row.media_id,
+            "permalink": pub_row.permalink, "error": pub_row.error,
+        } if pub_row else None
 
         # Ubah path lokal slides menjadi URL statis yang bisa langsung ditampilkan browser frontend
         slides_preview = []
@@ -595,7 +608,7 @@ def get_run_status(run_id: str):
                 # Status terkini dari library (snapshot di design bisa sudah usang
                 # kalau aset sudah di-approve/reject setelah design dibuat)
                 try:
-                    from src.carousel.tools import asset_library as _al
+                    from src.tools import asset_library as _al
                     live = _al.get_asset(pr.get("id")) if pr.get("id") is not None else None
                     pr_copy["status"] = live["status"] if live else "missing"
                 except Exception:
@@ -624,6 +637,7 @@ def get_run_status(run_id: str):
             "error": run_row.error,
             "plan": plan_data,
             "video": video_preview,
+            "publication": publication,
             "design": {
                 "ok": design_row.ok if design_row else False,
                 "slides": slides_preview,
@@ -662,10 +676,40 @@ def get_run_events(run_id: str):
         }
 
 
+def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions], brand: dict) -> dict:
+    """Posting Reels: preflight -> upload MP4 -> Instagram. Caption final datang dari UI (diedit manusia)."""
+    from src.agents import publisher
+
+    caption = ((req.caption if req else None) or publisher.default_video_caption(run_row.topic, brand)).strip()
+    share_to_feed = req.share_to_feed if req else True
+
+    ctx = create_run_context(run_row.topic, brand, run_id=run_row.id)
+    try:
+        problems = publisher.preflight_video(video, caption, run_id=run_row.id, session=ctx.session, ctx=ctx)
+        if problems:
+            raise HTTPException(status_code=400, detail="; ".join(problems))
+        result = publisher.publish_reel(video["video_path"], caption, share_to_feed=share_to_feed, ctx=ctx)
+        return {
+            "run_id": run_row.id,
+            "format": "reel",
+            "status": "published" if result.get("media_id") else "failed",
+            "media_id": result.get("media_id"),
+            "permalink": result.get("permalink"),
+            "error": result.get("error"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PUBLISH REEL ERROR] {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+    finally:
+        ctx.close()
+
+
 @app.post("/api/v1/runs/{run_id}/publish")
-def publish_run_to_instagram(run_id: str):
-    """Mempublikasikan carousel yang sudah di-generate langsung ke Instagram feed."""
-    from src.carousel.agents import publisher
+def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
+    """Mempublikasikan hasil run ke Instagram: carousel (feed) atau Reels (video)."""
+    from src.agents import publisher
 
     brand = pipeline.load_brand()
     with SessionLocal() as session:
@@ -680,40 +724,21 @@ def publish_run_to_instagram(run_id: str):
             select(Design).where(Design.run_id == run_id).order_by(desc(Design.version))
         ).first()
 
-        if design_row and json.loads(design_row.result_json or "{}").get("type") == "video":
-            video_data = json.loads(design_row.result_json)
-            vpath = video_data.get("video_path")
-            if not vpath or not Path(vpath).exists():
-                raise HTTPException(status_code=400, detail="File video Reels tidak ditemukan.")
-            caption = f"{run_row.topic}\n\n#reels #aiagent #automation"
-            if plan_row and plan_row.plan_json:
-                try:
-                    caption = json.loads(plan_row.plan_json).get("caption") or caption
-                except Exception:
-                    pass
+        video_payload = None
+        if design_row:
+            maybe_video = json.loads(design_row.result_json or "{}")
+            if maybe_video.get("type") == "video":
+                video_payload = maybe_video
+        if video_payload is None:
+            if not plan_row or not design_row:
+                raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
+            plan_data = json.loads(plan_row.plan_json)
+            design_data = json.loads(design_row.result_json)
 
-            ctx = create_run_context(run_row.topic, brand, run_id=run_id)
-            try:
-                result = publisher.publish_reel(vpath, caption, ctx=ctx)
-                is_ok = bool(result.get("media_id"))
-                return {
-                    "run_id": run_id,
-                    "status": "published" if is_ok else "failed",
-                    "media_id": result.get("media_id"),
-                    "permalink": result.get("permalink"),
-                    "error": result.get("error")
-                }
-            except Exception as e:
-                print(f"[PUBLISH REELS ERROR] {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-            finally:
-                ctx.close()
-
-        if not plan_row or not design_row:
-            raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
-
-        plan_data = json.loads(plan_row.plan_json)
-        design_data = json.loads(design_row.result_json)
+    # Reels diproses SETELAH sesi baca ditutup: upload + pemrosesan video memakan menit, dan transaksi baca
+    # yang masih terbuka bisa memicu "database is locked" di SQLite saat publisher menulis baris intent.
+    if video_payload is not None:
+        return _publish_video_run(run_row, video_payload, req, brand)
 
     # Eksekusi publishing via publisher agent
     ctx = create_run_context(run_row.topic, brand, run_id=run_id)
@@ -743,7 +768,7 @@ def publish_run_to_instagram(run_id: str):
 @app.post("/api/v1/assets/{asset_id}/review")
 def review_pending_asset(asset_id: int, status: str = "approved"):
     """Menyetujui (approve) atau menolak (reject) pose hasil generate Cloudflare."""
-    from src.carousel.tools import asset_library, cloudflare_pose_generator
+    from src.tools import asset_library, cloudflare_pose_generator
     if status not in {"approved", "rejected"}:
         raise HTTPException(status_code=400, detail="Status harus 'approved' atau 'rejected'")
 
@@ -801,7 +826,7 @@ def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
     - Jika tidak ada run yang menunggu: hanya membuat kandidat baru di Asset Library.
     Proses berjalan di background (generate gambar + hapus background bisa >1 menit).
     """
-    from src.carousel.tools import asset_library, cloudflare_pose_generator
+    from src.tools import asset_library, cloudflare_pose_generator
 
     asset = asset_library.get_asset(asset_id)
     if not asset:
@@ -863,7 +888,7 @@ def upload_talent_reference(
     description: str = Form("Foto mentah orang tanpa pose sebagai referensi AI")
 ):
     """Upload mentahan foto orang tanpa pose untuk referensi Cloudflare Workers AI."""
-    from src.carousel.tools.asset_library import add_asset
+    from src.tools.asset_library import add_asset
     try:
         people_dir = config.ROOT / "data" / "people" / person_id
         people_dir.mkdir(parents=True, exist_ok=True)
@@ -924,7 +949,7 @@ def list_system_assets(status: Optional[str] = None):
     Respons selalu menyertakan `counts` per status (tidak terpengaruh filter) untuk badge UI.
     """
     from collections import Counter
-    from src.carousel.tools.asset_library import list_assets
+    from src.tools.asset_library import list_assets
 
     wanted = None
     if status and status != "all":

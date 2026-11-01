@@ -61,10 +61,12 @@ export const api = {
     return res.json();
   },
 
-  publishToInstagram: async (runId) => {
+  // options (khusus Reels): { caption, share_to_feed }
+  publishToInstagram: async (runId, options) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/publish`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      ...(options ? { body: JSON.stringify(options) } : {})
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

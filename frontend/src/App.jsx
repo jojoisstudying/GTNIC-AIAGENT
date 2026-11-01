@@ -52,6 +52,20 @@ const ASSET_FILTERS = [
   { key: 'all', label: 'Semua' }
 ];
 
+const LAST_RUN_KEY = 'agent-sosmed:last-run-id';
+const POLL_INTERVAL_MS = 1500;
+const TERMINAL_STATUSES = ['ok', 'failed', 'awaiting_approval', 'awaiting_assets'];
+
+const readLastRunId = () => {
+  try { return localStorage.getItem(LAST_RUN_KEY); } catch { return null; }
+};
+const saveLastRunId = (id) => {
+  try { localStorage.setItem(LAST_RUN_KEY, id); } catch { /* storage diblokir: abaikan */ }
+};
+const forgetLastRunId = () => {
+  try { localStorage.removeItem(LAST_RUN_KEY); } catch { /* abaikan */ }
+};
+
 export default function App() {
   // Navigation / Tabs: 'generator' | 'assets' | 'layouts' | 'brand_settings'
   const [activeTab, setActiveTab] = useState('generator');
@@ -69,6 +83,9 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null);
+  const [videoCaption, setVideoCaption] = useState('');
+  const [shareToFeed, setShareToFeed] = useState(true);
+  const [confirmPublish, setConfirmPublish] = useState(false);
 
   // Carousel Preview slider
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -102,6 +119,18 @@ export default function App() {
   const [logoUploading, setLogoUploading] = useState(false);
   const [talentUploading, setTalentUploading] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+
+  // #18: pengganti alert(): banner di atas halaman, error ikut di-scroll ke atas supaya kelihatan
+  const notify = (type, text) => {
+    setStatusMessage({ type, text });
+    if (type === 'error') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  // Banner sukses hilang sendiri; error tetap sampai ditutup
+  useEffect(() => {
+    if (statusMessage?.type !== 'success') return;
+    const t = setTimeout(() => setStatusMessage(null), 6000);
+    return () => clearTimeout(t);
+  }, [statusMessage]);
 
   // Auto-scroll log
   const logEndRef = useRef(null);
@@ -167,39 +196,85 @@ export default function App() {
     fetchRuns();
   }, [isRunning, runsFilter, activeTab]);
 
-  // Polling status run & events saat isRunning == true
+  // #17: pulihkan run terakhir setelah refresh halaman
+  useEffect(() => {
+    const saved = readLastRunId();
+    if (!saved) return;
+    let cancelled = false;
+    api.getRunStatus(saved)
+      .then((res) => {
+        if (cancelled) return;
+        setFormatType(res.format === 'video' ? 'video' : 'carousel');
+        setIsRunning(res.status === 'running');
+        setCurrentRunId(saved); // efek polling di bawah yang memuat status + event
+      })
+      .catch(() => forgetLastRunId()); // run sudah tidak ada (DB direset, dsb.)
+    return () => { cancelled = true; };
+  }, []);
+
+  // #17: ingat run yang sedang dibuka
+  useEffect(() => {
+    if (currentRunId) saveLastRunId(currentRunId);
+  }, [currentRunId]);
+
+  // Reels: isi caption dengan saran server tiap kali run/video berganti (teks yang sedang diedit tidak ditimpa
+  // karena dependensinya hanya string saran, bukan objek runData)
+  const suggestedCaption = runData?.video?.suggested_caption || '';
+  useEffect(() => {
+    setVideoCaption(suggestedCaption);
+    setConfirmPublish(false);
+  }, [currentRunId, suggestedCaption]);
+
+  // Polling status run & events. #19: berhenti saat tab di background, lanjut + refresh saat tab kembali
   useEffect(() => {
     if (!currentRunId) return;
 
     let cancelled = false;
     let interval = null;
+
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+    const start = () => {
+      if (isRunning && !interval && !document.hidden) interval = setInterval(poll, POLL_INTERVAL_MS);
+    };
+
     const poll = async () => {
       try {
         const [statusRes, eventsRes] = await Promise.all([
           api.getRunStatus(currentRunId),
           api.getRunEvents(currentRunId)
         ]);
-        if (cancelled) return;
+        if (cancelled) return; // respons run lama tidak boleh menimpa run baru
         setRunData(statusRes);
         setEvents(eventsRes.events || []);
 
-        if (['ok', 'failed', 'awaiting_approval', 'awaiting_assets'].includes(statusRes.status)) {
+        if (TERMINAL_STATUSES.includes(statusRes.status)) {
+          stop();
           setIsRunning(false);
-          clearInterval(interval);
         }
       } catch (err) {
         if (!cancelled) console.error('Polling error:', err);
       }
     };
 
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stop();
+      } else if (isRunning) {
+        poll();  // kejar ketertinggalan segera
+        start();
+      }
+    };
+
     poll(); // Jalankan sekali langsung
-    if (isRunning) {
-      interval = setInterval(poll, 1500);
-    }
+    start();
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       cancelled = true;
-      if (interval) clearInterval(interval);
+      stop();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [currentRunId, isRunning]);
 
@@ -213,7 +288,8 @@ export default function App() {
     e.preventDefault();
     if (!topic.trim()) return;
 
-    setCurrentRunId(null); 
+    setCurrentRunId(null);
+    setStatusMessage(null);
     setIsRunning(true);
     setRunData(null);
     setEvents([]);
@@ -229,7 +305,7 @@ export default function App() {
       }
       setCurrentRunId(res.run_id);
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      notify('error', `Gagal memulai pipeline: ${err.message}`);
       setIsRunning(false);
     }
   };
@@ -239,8 +315,13 @@ export default function App() {
     if (!currentRunId) return;
     setPublishing(true);
     setPublishResult(null);
+    setConfirmPublish(false);
     try {
-      const res = await api.publishToInstagram(currentRunId);
+      const isReel = (runData?.format ?? formatType) === 'video';
+      const res = await api.publishToInstagram(
+        currentRunId,
+        isReel ? { caption: videoCaption, share_to_feed: shareToFeed } : undefined
+      );
       setPublishResult(res);
       // Refresh event log to include publisher audit events
       try {
@@ -250,9 +331,11 @@ export default function App() {
         console.error(e);
       }
       const isOk = res.status === 'published' || res.ok;
-      alert(isOk ? 'Berhasil dikirim ke Instagram!' : `Gagal: ${res.error || 'Terjadi kesalahan'}`);
+      notify(isOk ? 'success' : 'error',
+             isOk ? (res.format === 'reel' ? 'Reels berhasil diposting ke Instagram!' : 'Berhasil dikirim ke Instagram!')
+                  : `Publikasi gagal: ${res.error || 'Terjadi kesalahan'}`);
     } catch (err) {
-      alert(`Publikasi gagal: ${err.message}`);
+      notify('error', `Publikasi gagal: ${err.message}`);
     } finally {
       setPublishing(false);
     }
@@ -572,18 +655,22 @@ export default function App() {
 
                 <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-gray-800/60">
                   <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label
+                      className="flex items-center gap-2 cursor-pointer"
+                      title={formatType === 'video'
+                        ? 'Dicentang: cari fakta baru lewat Tavily. Tidak dicentang: pakai riset tersimpan (24 jam) untuk topik yang sama; bila belum ada, naskah dibuat tanpa angka/statistik.'
+                        : undefined}
+                    >
                       <input
                         type="checkbox"
                         checked={freshResearch}
                         onChange={(e) => setFreshResearch(e.target.checked)}
                         className="rounded bg-gray-900 border-gray-700 text-emerald-600 focus:ring-emerald-500"
                       />
-                      <span>Live Tavily Search ({formatType === 'video' ? 'Riset Fakta Topik Reels' : 'Riset Fakta Baru'})</span>
+                      <span>Live Tavily Search (Riset Fakta Baru)</span>
                     </label>
-
                     {formatType === 'video' && (
-                      <div className="flex items-center gap-2 pl-2 border-l border-gray-800">
+                      <div className="flex items-center gap-2">
                         <span>Target Durasi:</span>
                         <select
                           value={targetDuration}
@@ -861,61 +948,110 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Info biaya & status publish untuk run video */}
-                  {isVideoRun && runData && (
-                    <div className="p-4 border-t border-gray-800 bg-gray-950/80 space-y-3">
-                      {publishResult && (
-                        <div className={`p-3 rounded-lg text-xs border ${
-                          publishResult.status === 'published' ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300' : 'bg-red-950/40 border-red-800 text-red-300'
-                        }`}>
-                          <div className="font-semibold flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                            {publishResult.status === 'published' ? 'Reels Berhasil di-Publish ke Instagram!' : 'Gagal Publikasi Reels'}
+                  {/* Reels: caption + publish ke Instagram (run video tidak punya plan) */}
+                  {isVideoRun && runData && !runData.plan && (() => {
+                    const reelPub = publishResult?.format === 'reel' ? publishResult : runData.publication;
+                    const reelPublished = reelPub?.status === 'published';
+                    const captionTooLong = videoCaption.length > 2200;
+                    const canPublish = runData.status === 'ok' && video?.ok && !reelPublished
+                      && videoCaption.trim().length > 0 && !captionTooLong && !publishing;
+                    return (
+                      <div className="p-4 border-t border-gray-800 bg-gray-950/80 space-y-3">
+                        {video?.ok && (
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold text-gray-400">Caption Reels:</span>
+                              <span className={`text-[10px] font-mono ${captionTooLong ? 'text-red-400' : 'text-gray-500'}`}>
+                                {videoCaption.length}/2200
+                              </span>
+                            </div>
+                            <textarea
+                              value={videoCaption}
+                              onChange={(e) => setVideoCaption(e.target.value)}
+                              disabled={reelPublished || publishing}
+                              rows={4}
+                              placeholder="Tulis caption + hashtag (maks 30 hashtag)..."
+                              className="w-full text-xs text-gray-200 bg-gray-900 p-2.5 rounded border border-gray-800 focus:border-emerald-600 focus:outline-none leading-relaxed disabled:opacity-60"
+                            />
+                            <label className="flex items-center gap-2 mt-2 text-[11px] text-gray-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={shareToFeed}
+                                disabled={reelPublished || publishing}
+                                onChange={(e) => setShareToFeed(e.target.checked)}
+                                className="rounded bg-gray-900 border-gray-700 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span>Tampilkan juga di feed profil</span>
+                            </label>
                           </div>
-                          {publishResult.permalink && (
-                            <a 
-                              href={publishResult.permalink} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="text-emerald-400 underline block mt-1 hover:text-emerald-300"
-                            >
-                              Lihat Reels di Instagram &rarr;
-                            </a>
-                          )}
-                          {publishResult.error && (
-                            <p className="text-red-400 mt-1">{publishResult.error}</p>
-                          )}
-                        </div>
-                      )}
+                        )}
 
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[11px] text-gray-400 flex items-center gap-2">
-                          <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                          Biaya: <strong className="text-emerald-400 font-mono">${(runData.cost_usd ?? 0).toFixed(4)}</strong>
-                          <span className="text-gray-600">|</span>
-                          Token: <span className="font-mono text-gray-300">{(runData.tokens_in ?? 0) + (runData.tokens_out ?? 0)}</span>
-                        </div>
-                        <button
-                          onClick={handlePublish}
-                          disabled={publishing || runData.status !== 'ok'}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow"
-                        >
-                          {publishing ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Mengunggah Reels...
-                            </>
+                        {reelPub && (
+                          <div className={`p-3 rounded-lg text-xs border ${
+                            reelPublished ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+                              : reelPub.status === 'intent' ? 'bg-amber-950/40 border-amber-800 text-amber-300'
+                              : 'bg-red-950/40 border-red-800 text-red-300'
+                          }`}>
+                            <div className="font-semibold flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4" />
+                              {reelPublished ? 'Reels sudah diposting ke Instagram'
+                                : reelPub.status === 'intent' ? 'Posting belum selesai / terhenti (cek manual sebelum mencoba lagi)'
+                                : 'Gagal Publikasi'}
+                            </div>
+                            {reelPub.permalink && (
+                              <a href={reelPub.permalink} target="_blank" rel="noreferrer"
+                                 className="text-emerald-400 underline block mt-1 hover:text-emerald-300">
+                                Lihat Reels di Instagram &rarr;
+                              </a>
+                            )}
+                            {reelPub.error && <p className="text-red-400 mt-1">{reelPub.error}</p>}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-3 pt-1">
+                          <div className="text-[11px] text-gray-400 flex items-center gap-2">
+                            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                            Biaya: <strong className="text-emerald-400 font-mono">${(runData.cost_usd ?? 0).toFixed(4)}</strong>
+                            <span className="text-gray-600">|</span>
+                            Token: <span className="font-mono text-gray-300">{(runData.tokens_in ?? 0) + (runData.tokens_out ?? 0)}</span>
+                          </div>
+
+                          {confirmPublish && canPublish ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setConfirmPublish(false)}
+                                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold transition"
+                              >
+                                Batal
+                              </button>
+                              <button
+                                onClick={handlePublish}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                              >
+                                <Send className="w-3.5 h-3.5" /> Ya, posting sekarang
+                              </button>
+                            </div>
                           ) : (
-                            <>
-                              <Send className="w-3.5 h-3.5" /> Publish Reels to Instagram
-                            </>
+                            <button
+                              onClick={() => setConfirmPublish(true)}
+                              disabled={!canPublish}
+                              title={reelPublished ? 'Run ini sudah diposting' : undefined}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                            >
+                              {publishing ? (
+                                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Memposting (1-3 menit)...</>
+                              ) : (
+                                <><Send className="w-3.5 h-3.5" /> Publish Reels ke Instagram</>
+                              )}
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
-                  {/* Caption & Publish Action Bar untuk Carousel */}
-                  {!isVideoRun && runData?.plan && (
+                  {/* Caption & Publish Action Bar */}
+                  {runData?.plan && (
                     <div className="p-4 border-t border-gray-800 bg-gray-950/80 space-y-3">
                       <div>
                         <span className="text-xs font-semibold text-gray-400 block mb-1">Draf Caption Instagram:</span>
