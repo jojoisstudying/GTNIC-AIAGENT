@@ -1,4 +1,5 @@
 """Orchestrate research, planning, and design with run-scoped persistence."""
+import logging
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,8 @@ from src.carousel.agents import designer, research_agent, planner
 from src.carousel.tools.semantic_qc import check_carousel_semantics
 from src.core.context import RunContext, create_run_context
 from src.core.db import Design, Plan, ResearchSnapshot, Run
+
+log = logging.getLogger("gtnic.pipeline")
 
 RESEARCH_FILE = config.OUTPUT_DIR / "research_latest.json"
 PLAN_FILE = config.OUTPUT_DIR / "plan_latest.json"
@@ -96,7 +99,7 @@ def load_brand(session=None) -> dict:
         if owns_session:
             session.close()
     except Exception as e:
-        print(f"[PIPELINE] Warning: Could not enrich brand from EnterpriseProfile DB: {e}")
+        log.warning(f"[PIPELINE] Warning: Could not enrich brand from EnterpriseProfile DB: {e}")
 
     return base_brand
 
@@ -175,7 +178,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
 
         if not out.get("ok"):
             # FIX: dulu langsung `return out` -> run stuck 'running' selamanya.
-            print("Rencana gagal validasi:", out.get("issues"))
+            log.warning("Rencana gagal validasi:", out.get("issues"))
             msg = "Rencana gagal validasi: " + "; ".join(str(i) for i in (out.get("issues") or [])[:5])
             _close_run(session, ctx, "failed", msg)
             ctx.emit("error", "planner", step="planner", status="failed",
@@ -248,7 +251,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             ctx.emit("error", "pipeline", step="pipeline", status="failed",
                      detail={"error": str(exc), "error_type": type(exc).__name__})
         except Exception as inner:
-            print(f"[PIPELINE] gagal menandai run {ctx.run_id} failed: {inner}")
+            log.warning(f"[PIPELINE] gagal menandai run {ctx.run_id} failed: {inner}")
         raise
     finally:
         if own_context:

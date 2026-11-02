@@ -1,4 +1,5 @@
 """Strategy generator, 7-day calendar planner, and feedback loop engine."""
+import logging
 from datetime import datetime, timedelta, timezone
 import json
 import re
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from src.core.db import (
     EnterpriseProfile, ContentStrategyItem, PostAnalytics, AnalyticsInsight, Run, SessionLocal, utc_now
 )
+
+log = logging.getLogger("gtnic.strategy")
 
 SAMPLE_ENTERPRISE_PROFILE = {
     "company_name": "Resilience Digital Solusindo",
@@ -80,7 +83,7 @@ CALENDAR_TRANSITIONS = {
     "awaiting_approval": {"approved", "rejected", "draft"},
     "approved": {"approved_to_publish", "scheduled", "publishing", "publication_failed", "rejected", "draft"},
     "approved_to_publish": {"scheduled", "publishing", "rejected"},
-    "scheduled": {"approved_to_publish", "publishing", "rejected"},
+    "scheduled": {"approved_to_publish", "publishing", "publication_failed", "rejected"},
     "producing": {"awaiting_approval", "generation_failed", "rejected"},
     "generation_failed": {"approved", "rejected", "draft"},
     "publishing": {"published", "publication_failed"},
@@ -152,9 +155,18 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
     goals = json.loads(profile.business_goals_json or "[]")
 
     # Periksa apakah ada insight analytics aktif untuk diintegrasikan
-    latest_insight = session.scalars(
-        select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))
-    ).first()
+    recent_insights = session.scalars(
+        select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id)).limit(20)
+    ).all()
+
+    def _is_real(ins) -> bool:
+        try:
+            return json.loads(ins.data_points_json or "{}").get("is_simulated") is False
+        except ValueError:
+            return False
+
+    # Insight dari data Instagram NYATA diprioritaskan di atas insight data simulasi.
+    latest_insight = next((i for i in recent_insights if _is_real(i)), None) or (recent_insights[0] if recent_insights else None)
     analytics_rows = session.scalars(select(PostAnalytics).order_by(desc(PostAnalytics.id))).all()
     analytics_context = {
         "sample_size": len(analytics_rows),
@@ -240,7 +252,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                     raise ValueError("Offset strategi LLM harus mencakup tepat 1 sampai 7")
                 llm_generated_items = validated
         except Exception as e:
-            print(f"[STRATEGY] Dynamic LLM strategy generation fallback to structured template: {e}")
+            log.warning(f"[STRATEGY] Dynamic LLM strategy generation fallback to structured template: {e}")
 
     # Fallback template adaptif jika LLM tidak tersedia atau format tidak match
     plan_templates = llm_generated_items or [

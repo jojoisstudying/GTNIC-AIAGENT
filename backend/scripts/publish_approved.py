@@ -2,7 +2,7 @@
 import json
 
 from src import config
-from src.carousel.agents import publisher
+from src.agents import publisher
 from src.carousel.tools import asset_library
 
 

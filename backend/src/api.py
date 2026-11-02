@@ -7,6 +7,8 @@ Provides endpoints for frontend dashboard integration:
 - Direct publishing to Instagram
 - Static asset / slide image preview serving
 """
+import logging
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -29,16 +31,41 @@ from src.core.strategy import (
 )
 
 from src.core.context import create_run_context
-from src.core.db import Run, Plan, Design, Event, Publication, SessionLocal
+from src.core.db import Campaign, Run, Plan, Design, Event, Publication, SessionLocal
 from src.carousel.layouts import registry
+
+log = logging.getLogger("gtnic.api")
 
 @asynccontextmanager
 async def lifespan(_app):
     environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
     if environment in {"production", "prod"} and not auth.get_configured_api_key():
         raise RuntimeError("GTNIC_API_KEY must be configured before production startup.")
-    yield
+    logging.basicConfig(level=config.opt("LOG_LEVEL", "INFO").upper(),
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Buat tabel yang belum ada + kolom baru (idempotent).
+    if config.opt("AUTO_CREATE_SCHEMA", "true").lower() != "false":
+        from src.core.db import engine, ensure_schema
+        ensure_schema(engine)
+    task = None
+    if config.opt("SCHEDULER_ENABLED", "false").lower() == "true":
+        from src.core.scheduler import scheduler_loop
+        from src.core.analytics_ingest import ingest_all
+        interval = int(config.opt("SCHEDULER_INTERVAL_SECONDS", "60") or 60)
+        ingest_fn = (lambda: ingest_all(SessionLocal)) if config.opt("IG_USER_ID") else None
+        task = asyncio.create_task(scheduler_loop(
+            SessionLocal, publish_run_to_instagram, interval,
+            int(config.opt("ANALYTICS_INGEST_INTERVAL_SECONDS", "21600") or 21600), ingest_fn))
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
 
+
+from src.ops_api import router as ops_router  # noqa: E402
+from src.campaign_api import router as campaign_router  # noqa: E402
+import src.core.notify  # noqa: E402,F401  (registrasi listener notifikasi/audit)
 
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
@@ -57,6 +84,9 @@ allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip(
 ]
 if "*" in allowed_origins:
     raise RuntimeError("CORS_ORIGINS tidak boleh berisi wildcard '*'.")
+
+app.include_router(ops_router)
+app.include_router(campaign_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,7 +162,7 @@ def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design:
     try:
         pipeline.run(topic, fresh=fresh, ctx=ctx, include_design=include_design)
     except Exception as e:
-        print(f"[API ERROR] Pipeline execution failed for run {run_id}: {e}")
+        log.error(f"[API ERROR] Pipeline execution failed for run {run_id}: {e}")
     finally:
         ctx.close()
 
@@ -209,7 +239,7 @@ def _execute_resume_task(run_id: str):
                      status=run_row.status,
                      detail={"version": design_version + 1, "ok": bool(design_result.get("ok"))})
     except Exception as e:
-        print(f"[RESUME ERROR] {e}")
+        log.error(f"[RESUME ERROR] {e}")
         with SessionLocal() as session:
             run_row = session.get(Run, run_id)
             if run_row:
@@ -254,7 +284,7 @@ def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
                      detail={"new_asset_id": staged.get("id"), "pose": pose,
                              "status": staged.get("status")})
     except Exception as e:
-        print(f"[REGENERATE ERROR] asset {asset_id} pose {pose}: {e}")
+        log.error(f"[REGENERATE ERROR] asset {asset_id} pose {pose}: {e}")
         if run_id:
             try:
                 with SessionLocal() as session:
@@ -264,7 +294,7 @@ def _execute_regenerate_task(run_id: Optional[str], asset_id: int, pose: str,
                         run_row.error = f"Regenerate pose '{pose}' gagal: {e}"
                         session.commit()
             except Exception as db_exc:
-                print(f"[REGENERATE ERROR] gagal mengembalikan status run {run_id}: {db_exc}")
+                log.error(f"[REGENERATE ERROR] gagal mengembalikan status run {run_id}: {db_exc}")
         if ctx:
             ctx.emit("error", "pose_regenerate", step="designer", status="failed",
                      detail={"error": str(e), "error_type": type(e).__name__, "pose": pose})
@@ -367,7 +397,7 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
                  tokens_in=ctx.llm.tokens_in, tokens_out=ctx.llm.tokens_out,
                  cost_usd=ctx.llm.cost_usd)
     except Exception as e:
-        print(f"[API ERROR] Video pipeline execution failed for run {run_id}: {e}")
+        log.error(f"[API ERROR] Video pipeline execution failed for run {run_id}: {e}")
         try:
             _save_video_result(
                 run_id,
@@ -375,7 +405,7 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
                 "failed", ctx=ctx, error=f"{type(e).__name__}: {e}",
             )
         except Exception as db_exc:  # jangan sampai kegagalan DB menyembunyikan error asli
-            print(f"[API ERROR] Gagal menyimpan status failed untuk run {run_id}: {db_exc}")
+            log.error(f"[API ERROR] Gagal menyimpan status failed untuk run {run_id}: {db_exc}")
         ctx.emit("error", "video_pipeline", step="video", status="failed",
                  detail={"error": str(e), "error_type": type(e).__name__})
     finally:
@@ -530,7 +560,7 @@ def upload_brand_logo(file: UploadFile = File(...)):
             try:
                 logo_path.unlink(missing_ok=True)
             except OSError as cleanup_error:
-                print(f"[UPLOAD] Failed to clean temporary logo: {cleanup_error}")
+                log.error(f"[UPLOAD] Failed to clean temporary logo: {cleanup_error}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -863,8 +893,8 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
                     cal_item.approval_notes = f"Publication gagal: {e}"[:500]
                     db_session.commit()
         except Exception as status_exc:
-            print(f"[PUBLISH REEL] Failed to record publication failure state: {status_exc}")
-        print(f"[PUBLISH REEL ERROR] {type(e).__name__}: {e}")
+            log.error(f"[PUBLISH REEL] Failed to record publication failure state: {status_exc}")
+        log.error(f"[PUBLISH REEL ERROR] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
     finally:
         ctx.close()
@@ -996,8 +1026,8 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
                     cal_item.approval_notes = f"Publication gagal: {e}"[:500]
                     db_session.commit()
         except Exception as status_exc:
-            print(f"[PUBLISH] Failed to record publication failure state: {status_exc}")
-        print(f"[PUBLISH ERROR] {e}")
+            log.error(f"[PUBLISH] Failed to record publication failure state: {status_exc}")
+        log.error(f"[PUBLISH ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         ctx.close()
@@ -1164,7 +1194,7 @@ def upload_talent_reference(
                 if dest_path.parent.exists() and not any(dest_path.parent.iterdir()):
                     dest_path.parent.rmdir()
             except OSError as cleanup_error:
-                print(f"[UPLOAD] Failed to clean temporary reference file: {cleanup_error}")
+                log.error(f"[UPLOAD] Failed to clean temporary reference file: {cleanup_error}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1366,9 +1396,25 @@ class StrategyItemAction(BaseModel):
 
 @app.get("/api/v1/strategy/calendar")
 def get_strategy_calendar_endpoint(regenerate: bool = False):
-    """Melihat kalender rencana konten 7 hari lengkap dengan pilar, format, dan status persetujuan."""
+    """Melihat kalender 7 hari. GET bersifat read-only; kalender dibuat otomatis hanya jika kosong.
+    Parameter ``regenerate`` diabaikan di sini; gunakan POST /api/v1/strategy/calendar/regenerate."""
     with SessionLocal() as session:
-        items = generate_7day_strategy(session, reset=regenerate)
+        items = session.scalars(select(ContentStrategyItem).order_by(ContentStrategyItem.id.asc())).all()
+        if not items:
+            items = generate_7day_strategy(session, reset=False)
+        return _calendar_payload(items)
+
+
+@app.post("/api/v1/strategy/calendar/regenerate", dependencies=[Depends(auth.verify_api_key)])
+def regenerate_strategy_calendar_endpoint():
+    """Membuat ulang item draft/rejected kalender (terproteksi API key karena memakai kuota LLM)."""
+    with SessionLocal() as session:
+        items = generate_7day_strategy(session, reset=True)
+        return _calendar_payload(items)
+
+
+def _calendar_payload(items):
+    if True:
         return {
             "total_items": len(items),
             "items": [
@@ -1386,6 +1432,11 @@ def get_strategy_calendar_endpoint(regenerate: bool = False):
                     "approval_notes": it.approval_notes,
                     "run_id": it.run_id,
                     "feedback_insight_id": it.feedback_insight_id,
+                    "campaign_id": it.campaign_id,
+                    "approved_by": it.approved_by,
+                    "publish_attempts": it.publish_attempts or 0,
+                    "next_attempt_at": it.next_attempt_at.isoformat() if it.next_attempt_at else None,
+                    "last_error": it.last_error,
                     "is_published": it.status == "published",
                 }
                 for it in items
@@ -1412,6 +1463,10 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
                 if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
                     raise HTTPException(status_code=409, detail="Run gagal QC/generasi; approval diblokir.")
             item.status = req.status
+            if req.status in {"approved", "approved_to_publish", "scheduled"}:
+                item.approved_by = "api_user"  # persetujuan manusia (dipakai kebijakan autonomi)
+            if req.status == "scheduled":
+                item.publish_attempts, item.next_attempt_at, item.last_error = 0, None, None
 
         if req.plan_date:
             item.plan_date = req.plan_date
@@ -1444,8 +1499,13 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
             if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
                 raise HTTPException(status_code=409, detail="Run sebelumnya gagal QC/generasi; buat run baru setelah memperbaiki konten.")
 
+        gen_topic = item.topic
+        if item.campaign_id:
+            camp = session.get(Campaign, item.campaign_id)
+            if camp and camp.status in {"active", "draft"}:
+                gen_topic = f"{item.topic} (Kampanye: {camp.name}. Pesan utama: {camp.message}. Syarat konten: {camp.content_requirements})"[:900]
         brand = pipeline.load_brand()
-        ctx = create_run_context(item.topic, brand)
+        ctx = create_run_context(gen_topic, brand)
         run_id = ctx.run_id
         ctx.close()
 
@@ -1454,9 +1514,9 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
         session.commit()
 
         if item.format == "video":
-            background_tasks.add_task(_execute_video_pipeline_task, run_id, item.topic, 30, False)
+            background_tasks.add_task(_execute_video_pipeline_task, run_id, gen_topic, 30, False)
         else:
-            background_tasks.add_task(_execute_pipeline_task, run_id, item.topic, False, True)
+            background_tasks.add_task(_execute_pipeline_task, run_id, gen_topic, False, True)
 
         return {"status": "producing", "run_id": run_id, "strategy_item_id": item.id}
 
@@ -1465,11 +1525,47 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
 # ANALYTICS & CLOSED FEEDBACK LOOP (FEATURE-03)
 # ===========================================================================
 
+def _demo_seed_allowed() -> bool:
+    """Seed demo hanya bila diizinkan eksplisit, atau default-nya di luar production."""
+    flag = config.opt("ALLOW_DEMO_SEED", "").lower()
+    if flag:
+        return flag == "true"
+    env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+    return env not in {"production", "prod"}
+
+
+@app.post("/api/v1/analytics/seed-demo", dependencies=[Depends(auth.verify_api_key)])
+def seed_demo_analytics_endpoint():
+    """Mengisi dataset analytics DEMO (berlabel simulated) jika masih kosong."""
+    with SessionLocal() as session:
+        records = seed_demo_analytics_data(session)
+        return {"status": "ok", "records": len(records), "is_simulated": True}
+
+
+@app.post("/api/v1/analytics/ingest", dependencies=[Depends(auth.verify_api_key)])
+def ingest_analytics_endpoint():
+    """Tarik metrik Instagram asli untuk publikasi 'published' (30 hari terakhir) lalu hasilkan insight bila data cukup."""
+    from src.core.analytics_ingest import ingest_all
+    if not config.opt("IG_USER_ID"):
+        raise HTTPException(status_code=409, detail="IG_USER_ID belum dikonfigurasi.")
+    result = ingest_all(SessionLocal)
+    if result.get("new_insights"):
+        result["next_step"] = "Insight baru dari data nyata akan dipakai saat POST /api/v1/strategy/calendar/regenerate."
+    return result
+
+
+@app.get("/api/v1/health")
+def health():
+    return {"status": "ok", "scheduler_enabled": config.opt("SCHEDULER_ENABLED", "false").lower() == "true"}
+
+
 @app.get("/api/v1/analytics/dashboard")
 def get_analytics_dashboard_endpoint():
     """Mengambil data performa postingan dan rekomendasi insight berbasis metrik nyata/simulasi transparan."""
     with SessionLocal() as session:
-        records = seed_demo_analytics_data(session)
+        records = session.scalars(select(PostAnalytics).order_by(desc(PostAnalytics.id))).all()
+        if not records and _demo_seed_allowed():
+            records = seed_demo_analytics_data(session)
         insights = session.scalars(select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))).all()
 
         total_reach = sum(r.reach or 0 for r in records)

@@ -113,6 +113,20 @@ def get_media_metrics(media_id: str, *, ctx=None) -> dict:
         return _get(media_id, fields="id,like_count,comments_count,timestamp", ctx=ctx)
 
 
+def get_media_insights(media_id: str, *, ctx=None) -> dict:
+    """Ambil insight per media. Metrik yang tidak tersedia untuk tipe media dilewati (tetap NULL)."""
+    out: dict = {}
+    for metric in ("reach", "saved", "shares", "views", "total_interactions", "profile_visits"):
+        try:
+            data = _get(f"{media_id}/insights", ctx=ctx, metric=metric)
+            vals = data.get("data") or []
+            if vals and vals[0].get("values"):
+                out[metric] = vals[0]["values"][0].get("value")
+        except Exception:
+            continue
+    return out
+
+
 def get_content_publishing_limit(*, ctx=None) -> dict:
     """Query content_publishing_limit for the configured Instagram account.
 

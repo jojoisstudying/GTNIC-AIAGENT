@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -193,6 +193,11 @@ class ContentStrategyItem(Base):
     approval_notes: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[str | None] = mapped_column(String(32), index=True)
     feedback_insight_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    campaign_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    publish_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(String(64))  # api_user | autonomy_policy | None
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
@@ -222,6 +227,85 @@ class PostAnalytics(Base):
     ingestion_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     data_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class SchedulerLock(Base):
+    """Lock leader agar hanya satu proses/worker yang menjalankan scheduler."""
+    __tablename__ = "scheduler_locks"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    objective: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_audience: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    start_date: Mapped[str] = mapped_column(String(16), nullable=False)  # YYYY-MM-DD
+    end_date: Mapped[str] = mapped_column(String(16), nullable=False)
+    products_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_requirements: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    performance_targets_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")  # draft|active|completed|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="info")  # info|warning|error
+    entity_type: Mapped[str | None] = mapped_column(String(48))
+    entity_id: Mapped[str | None] = mapped_column(String(64))
+    is_read: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False, default="system")
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(64))
+    detail_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+NEW_COLUMNS = {
+    "content_strategy_items": {
+        "publish_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "next_attempt_at": "DATETIME",
+        "last_error": "TEXT",
+        "approved_by": "VARCHAR(64)",
+        "campaign_id": "INTEGER",
+    },
+}
+
+
+def ensure_schema(bind) -> None:
+    """Buat tabel yang belum ada dan tambahkan kolom baru pada tabel lama (idempotent)."""
+    Base.metadata.create_all(bind)
+    insp = inspect(bind)
+    for table, cols in NEW_COLUMNS.items():
+        if not insp.has_table(table):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table)}
+        missing = {n: d for n, d in cols.items() if n not in existing}
+        if missing:
+            with bind.begin() as conn:
+                for name, ddl in missing.items():
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def ingest_publication_metrics(session, publication: Publication, metrics: dict[str, Any], *,

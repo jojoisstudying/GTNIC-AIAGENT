@@ -1,4 +1,5 @@
 """Instagram credential verification, auto-refresh, and alerting."""
+import logging
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -11,6 +12,8 @@ from src import config
 from src.core.db import CredentialStatus, SessionLocal, sessionmaker
 from src.core.events import EventEmitter
 from src.core.http import HttpClient, redact_text
+
+log = logging.getLogger("gtnic.credentials")
 
 PROVIDER_NAME = "instagram"
 
@@ -45,7 +48,7 @@ def send_alert(message: str, *, subject: str = "Social Media Pipeline Alert") ->
             pass
 
     # Fallback to stdout alert if no third-party alert channel configured
-    print(f"\n[ALERT] {subject}: {message}\n")
+    log.warning(f"\n[ALERT] {subject}: {message}\n")
     return True
 
 

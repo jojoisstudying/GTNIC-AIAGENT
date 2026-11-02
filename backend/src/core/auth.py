@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from src import config
+from src.core.notify import current_actor
 
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -31,6 +32,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)) -> b
         if os.getenv("ALLOW_UNAUTHENTICATED_DEV", "").lower() != "true":
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                                  detail="Set GTNIC_API_KEY atau aktifkan mode development terbuka secara eksplisit.")
+        current_actor.set("api_user")
         return True
 
     if not api_key:
@@ -46,4 +48,5 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)) -> b
             detail="API Key tidak valid atau tidak memiliki otorisasi.",
         )
 
+    current_actor.set("api_user")
     return True

@@ -5,7 +5,7 @@ from src import config
 from src.carousel.agents import facts as facts_mod
 from src.core.llm import LLMClient
 from src.carousel.tools.search import search_social_trends
-from src.carousel.tools.instagram import get_my_recent_performance
+from src.tools.instagram import get_my_recent_performance
 
 MIN_POSTS = 5
 
