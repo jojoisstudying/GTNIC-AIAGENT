@@ -6,6 +6,11 @@ const protectedHeaders = (headers = {}) => {
   return { ...headers, ...(key ? { 'X-API-Key': key } : {}) };
 };
 
+const readError = async (res, fallback) => {
+  const data = await res.json().catch(() => ({}));
+  return new Error(data.detail || data.error || fallback);
+};
+
 export const api = {
   getBrand: async () => {
     const res = await fetch(`${API_BASE}/api/v1/brand`);
@@ -71,7 +76,7 @@ export const api = {
   publishToInstagram: async (runId, options) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/publish`, {
       method: 'POST',
-        headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       ...(options ? { body: JSON.stringify(options) } : {})
     });
     const data = await res.json().catch(() => ({}));
@@ -84,7 +89,7 @@ export const api = {
   updateBrand: async (brandData) => {
     const res = await fetch(`${API_BASE}/api/v1/brand`, {
       method: 'POST',
-        headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(brandData)
     });
     if (!res.ok) {
@@ -166,19 +171,19 @@ export const api = {
   // FEATURE-01: Enterprise Profile & Onboarding
   getEnterpriseProfile: async () => {
     const res = await fetch(`${API_BASE}/api/v1/enterprise/profile`);
-    if (!res.ok) throw new Error("Gagal mengambil profil enterprise");
+    if (!res.ok) throw new Error('Gagal mengambil profil enterprise');
     return res.json();
   },
 
   updateEnterpriseProfile: async (profileData) => {
     const res = await fetch(`${API_BASE}/api/v1/enterprise/profile`, {
-      method: "PUT",
-      headers: protectedHeaders({ "Content-Type": "application/json" }),
+      method: 'PUT',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(profileData)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Gagal memperbarui profil enterprise");
+      throw new Error(err.detail || 'Gagal memperbarui profil enterprise');
     }
     return res.json();
   },
@@ -186,31 +191,41 @@ export const api = {
   // FEATURE-02: Strategy Calendar & Approvals
   getStrategyCalendar: async (regenerate = false) => {
     const res = await fetch(`${API_BASE}/api/v1/strategy/calendar?regenerate=${regenerate}`);
-    if (!res.ok) throw new Error("Gagal mengambil kalender strategi");
+    if (!res.ok) throw new Error('Gagal mengambil kalender strategi');
+    return res.json();
+  },
+
+  // Backend memisahkan regenerate ke POST; GET hanya membaca (dan membuat kalender bila kosong).
+  regenerateStrategyCalendar: async () => {
+    const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/regenerate`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal membuat ulang kalender strategi');
     return res.json();
   },
 
   updateStrategyItem: async (itemId, action) => {
     const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}`, {
-      method: "PATCH",
-      headers: protectedHeaders({ "Content-Type": "application/json" }),
+      method: 'PATCH',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(action)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Gagal memperbarui item strategi");
+      throw new Error(err.detail || 'Gagal memperbarui item strategi');
     }
     return res.json();
   },
 
   generateFromStrategyItem: async (itemId) => {
     const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}/generate`, {
-      method: "POST",
+      method: 'POST',
       headers: protectedHeaders(),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Gagal menjalankan pipeline dari strategi");
+      throw new Error(err.detail || 'Gagal menjalankan pipeline dari strategi');
     }
     return res.json();
   },
@@ -218,9 +233,50 @@ export const api = {
   // FEATURE-03: Analytics & Feedback Loop
   getAnalyticsDashboard: async () => {
     const res = await fetch(`${API_BASE}/api/v1/analytics/dashboard`);
-    if (!res.ok) throw new Error("Gagal mengambil data analytics dashboard");
+    if (!res.ok) throw new Error('Gagal mengambil data analytics dashboard');
     return res.json();
   },
+
+  // Operations Center (notifikasi, audit, status operasional)
+  getOpsStatus: async () => {
+    const res = await fetch(`${API_BASE}/api/v1/ops/status`);
+    if (!res.ok) throw new Error('Gagal mengambil status operasional');
+    return res.json();
+  },
+
+  getNotifications: async ({ unreadOnly = false, limit = 20 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (unreadOnly) params.set('unread_only', 'true');
+    const res = await fetch(`${API_BASE}/api/v1/notifications?${params}`);
+    if (!res.ok) throw new Error('Gagal mengambil notifikasi');
+    return res.json();
+  },
+
+  readNotification: async (id) => {
+    const res = await fetch(`${API_BASE}/api/v1/notifications/${id}/read`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menandai notifikasi');
+    return res.json();
+  },
+
+  readAllNotifications: async () => {
+    const res = await fetch(`${API_BASE}/api/v1/notifications/read-all`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menandai semua notifikasi');
+    return res.json();
+  },
+
+  getHealth: async () => {
+    const res = await fetch(`${API_BASE}/api/v1/health`);
+    if (!res.ok) throw new Error('Backend tidak merespons');
+    return res.json();
+  },
+
+  getApiKey: () => window.localStorage.getItem(API_KEY_STORAGE) || '',
 
   setApiKey: (key) => {
     if (key?.trim()) window.localStorage.setItem(API_KEY_STORAGE, key.trim());

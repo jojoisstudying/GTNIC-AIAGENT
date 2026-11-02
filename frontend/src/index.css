@@ -2,26 +2,263 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background-color: #0b0f19;
-  color: #f3f4f6;
-  min-height: 100vh;
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    margin: 0;
+    min-height: 100vh;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Hindari overflow horizontal di layar kecil */
+  #root {
+    @apply min-h-screen w-full overflow-x-hidden;
+  }
+
+  h1, h2, h3, h4 {
+    @apply text-ink;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: #cdeeff;
+    color: #124c66;
+  }
+
+  :focus-visible {
+    outline: 2px solid #36aee8;
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c8d7e5 transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cbd9e6;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a9bccd;
+  }
+
+  /* Target sentuh lebih lega pada perangkat layar sentuh */
+  @media (pointer: coarse) {
+    .btn { min-height: 2.875rem; }
+    .btn-sm { min-height: 2.625rem; }
+    .btn-xs { min-height: 2.375rem; }
+    .btn-icon { height: 2.75rem; width: 2.75rem; }
+    .input { min-height: 2.875rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-/* Custom scrollbar for reasoning log */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+@layer components {
+  /* ---------- Surfaces ---------- */
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+  }
+
+  .card-hover {
+    @apply transition-shadow duration-200 hover:shadow-cardHover;
+  }
+
+  .card-header {
+    @apply flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4;
+  }
+
+  .section-title {
+    @apply text-base font-semibold text-ink;
+  }
+
+  .section-subtitle {
+    @apply mt-0.5 text-sm text-ink-muted;
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl border border-transparent px-4 text-sm font-semibold transition-colors duration-150;
+    min-height: 2.5rem;
+    line-height: 1.25;
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    @apply cursor-not-allowed opacity-55;
+  }
+
+  .btn-primary {
+    @apply bg-brand-400 text-[#08303f] shadow-sm hover:bg-brand-500 active:bg-brand-600 active:text-white;
+  }
+
+  .btn-secondary {
+    @apply border-line bg-surface text-ink hover:bg-soft;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-ink-muted hover:bg-soft hover:text-ink;
+  }
+
+  .btn-danger {
+    @apply bg-danger-500 text-white hover:bg-danger-600;
+  }
+
+  .btn-warning {
+    @apply bg-warning-500 text-white hover:bg-warning-600;
+  }
+
+  .btn-success {
+    @apply bg-success-600 text-white hover:bg-success-700;
+  }
+
+  .btn-sm {
+    @apply rounded-lg px-3 text-xs;
+    min-height: 2.25rem;
+  }
+
+  .btn-xs {
+    @apply gap-1.5 rounded-lg px-2.5 text-xs;
+    min-height: 2rem;
+  }
+
+  .btn-lg {
+    @apply rounded-xl px-5 text-base;
+    min-height: 3rem;
+  }
+
+  .btn-icon {
+    @apply inline-flex items-center justify-center rounded-lg border border-line bg-surface text-ink-muted transition-colors hover:bg-soft hover:text-ink;
+    height: 2.5rem;
+    width: 2.5rem;
+  }
+
+  /* ---------- Forms ---------- */
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+
+  .hint {
+    @apply mt-1.5 text-xs leading-relaxed text-ink-muted;
+  }
+
+  .input {
+    @apply block w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-ink shadow-sm transition-colors placeholder:text-ink-subtle;
+    min-height: 2.75rem;
+  }
+
+  .input:hover:not(:disabled) {
+    @apply border-[#cfdce8];
+  }
+
+  .input:focus {
+    @apply border-brand-400 outline-none ring-4 ring-brand-400/15;
+  }
+
+  .input:disabled {
+    @apply cursor-not-allowed bg-canvas text-ink-muted;
+  }
+
+  .input-invalid {
+    @apply border-danger-500 focus:border-danger-500 focus:ring-danger-500/15;
+  }
+
+  textarea.input {
+    @apply resize-y leading-relaxed;
+  }
+
+  /* ---------- Badges ---------- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-neutral {
+    @apply border-line bg-canvas text-ink-muted;
+  }
+
+  .badge-brand {
+    @apply border-brand-200 bg-brand-50 text-brand-700;
+  }
+
+  .badge-success {
+    @apply border-success-100 bg-success-50 text-success-700;
+  }
+
+  .badge-warning {
+    @apply border-warning-100 bg-warning-50 text-warning-700;
+  }
+
+  .badge-danger {
+    @apply border-danger-100 bg-danger-50 text-danger-700;
+  }
+
+  /* ---------- Misc ---------- */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-soft;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  }
+
+  .divider {
+    @apply h-px w-full bg-line;
+  }
+
+  .surface-muted {
+    @apply rounded-xl border border-line bg-canvas;
+  }
+
+  .scroll-area {
+    @apply overflow-y-auto;
+    max-height: 26rem;
+  }
+
+  .prose-raw {
+    @apply whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed;
+  }
 }
-::-webkit-scrollbar-track {
-  background: #111827;
-}
-::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
