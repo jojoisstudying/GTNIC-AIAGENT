@@ -1033,6 +1033,26 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
         ctx.close()
 
 
+class AssetPermissions(BaseModel):
+    source_type: Optional[str] = None      # uploaded | ai_generated | stock | brand_owned
+    license_note: Optional[str] = None
+    allowed_uses: Optional[List[str]] = None  # social_post, video, ads, website, internal
+
+
+@app.post("/api/v1/assets/{asset_id}/permissions", dependencies=[Depends(auth.verify_api_key)])
+def set_asset_permissions(asset_id: int, req: AssetPermissions):
+    """Atur sumber, catatan lisensi, dan tujuan penggunaan yang diizinkan untuk sebuah aset."""
+    from src.carousel.tools import asset_library
+    try:
+        n = asset_library.set_permissions(asset_id, source_type=req.source_type, license_note=req.license_note,
+                                          allowed_uses=req.allowed_uses)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not n:
+        raise HTTPException(status_code=404, detail="Asset tidak ditemukan")
+    return asset_library.get_asset(asset_id)
+
+
 @app.post("/api/v1/assets/{asset_id}/review", dependencies=[Depends(auth.verify_api_key)])
 def review_pending_asset(asset_id: int, status: str = "approved"):
     """Menyetujui (approve) atau menolak (reject) pose hasil generate Cloudflare."""
@@ -1153,7 +1173,10 @@ def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
 def upload_talent_reference(
     file: UploadFile = File(...),
     person_id: str = Form("operator_01"),
-    description: str = Form("Foto mentah orang tanpa pose sebagai referensi AI")
+    description: str = Form("Foto mentah orang tanpa pose sebagai referensi AI"),
+    source_type: str = Form("uploaded"),
+    license_note: str = Form(""),
+    allowed_uses: str = Form("social_post"),
 ):
     """Upload mentahan foto orang tanpa pose untuk referensi Cloudflare Workers AI."""
     from src.carousel.tools.asset_library import add_asset
@@ -1175,7 +1198,9 @@ def upload_talent_reference(
             description=description,
             status="approved",
             person_id=person_id,
-            kind="reference"
+            kind="reference",
+            source_type=source_type[:32], license_note=license_note[:300],
+            allowed_uses=[u for u in allowed_uses.split(",") if u.strip()],
         )
 
         return {

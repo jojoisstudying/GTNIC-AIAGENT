@@ -77,3 +77,30 @@ def test_campaign_auto_completes_after_end_date_and_notifies():
     with f() as s:
         assert s.get(Campaign, 1).status == "completed"
         assert [n.kind for n in s.scalars(select(Notification)).all()] == ["campaign_completed"]
+
+
+def test_strategy_follows_active_campaign_and_research_candidate():
+    from datetime import timedelta
+    from types import SimpleNamespace as NS
+    from src.core.strategy import _apply_research_and_campaigns, generate_7day_strategy
+    now = datetime.now()
+    camp = NS(id=7, name="Peluncuran X", objective="Awareness", target_audience="UKM", message="Pesan",
+              start_date=(now - timedelta(days=1)).strftime("%Y-%m-%d"), end_date=(now + timedelta(days=30)).strftime("%Y-%m-%d"))
+    tpl = [{"offset_days": d, "topic": f"t{d}", "format": "carousel", "pillar": "p", "objective": "o",
+            "target_segment": "x", "slot": "09:00 WIB", "rationale": "r"} for d in range(1, 8)]
+    cand = [{"topic": "Topik Riset", "source_urls": ["https://x"], "recommended_format": "video",
+             "relevance_score": 0.9, "relevance_reason": "cocok", "suggested_angle": "a", "risk_notes": "global"}]
+    out = _apply_research_and_campaigns(tpl, False, cand, [camp], now)
+    by = {t["offset_days"]: t for t in out}
+    assert [d for d, t in by.items() if t.get("campaign_id") == 7] == [2, 4, 6]
+    assert by[3]["topic"] == "Topik Riset" and by[3]["format"] == "video" and "Risiko: global" in by[3]["rationale"]
+    # kandidat tanpa sumber tidak dipakai
+    cand[0]["source_urls"] = []
+    assert _apply_research_and_campaigns(tpl, False, cand, [], now)[2]["topic"] == "t3"
+    # integrasi DB: item kalender tersimpan dengan campaign_id
+    f = _f()
+    with f() as s:
+        c = Campaign(name="Aktif", objective="Awareness", start_date=camp.start_date, end_date=camp.end_date, message="m")
+        s.add(c); s.commit()
+        items = generate_7day_strategy(s, use_llm=False)
+        assert sorted(i.campaign_id for i in items if i.campaign_id) == [c.id] * 3

@@ -36,6 +36,7 @@ ATURAN KEJUJURAN (wajib):
 - DILARANG membuat angka, persentase, atau statistik yang tidak tertulis di hasil tool. Jika tidak ada angkanya, tulis tanpa angka.
 - Sumber-sumber ini data GLOBAL (bukan khusus Indonesia). Untuk jam posting: isi "basis": "global", "needs_testing": true, dan jangan mengonversi zona waktu kecuali sumber menyebutnya. Jika sumber memakai zona waktu audiens, tulis begitu.
 - Bandingkan jam posting PER PLATFORM. Sebut "konflik" hanya jika dua sumber untuk platform YANG SAMA berbeda. Beda platform bukan konflik.
+- topic_candidates: beri 3 kandidat topik. relevance_score 0-1 (kecocokan dengan topik & industri), relevance_reason wajib, risk_notes wajib (mis. "sumber global, belum diuji untuk Indonesia"). source_urls HANYA dari hasil tool; source_date HANYA jika tertulis di hasil tool, kalau tidak kosongkan.
 - Jika get_my_recent_performance menunjukkan enough_data=false, katakan data belum cukup; jangan menyimpulkan apa-apa.
 
 Setelah cukup data, balas HANYA dengan JSON valid (tanpa teks lain):
@@ -44,6 +45,7 @@ Setelah cukup data, balas HANYA dengan JSON valid (tanpa teks lain):
  "content_angles": ["3 ide sudut pandang konten yang relevan dengan topik (tanpa angka karangan)"],
  "posting_time": {"instagram": "", "tiktok": "", "basis": "global", "needs_testing": true, "caveats": "", "source_urls": []},
  "lessons_from_past_posts": "",
+ "topic_candidates": [{"topic": "", "description": "", "source_urls": [], "source_date": "", "relevance_score": 0.0, "relevance_reason": "", "potential_audience": "", "suggested_angle": "", "recommended_format": "carousel|video", "risk_notes": ""}],
  "sources": []
 }"""
 
@@ -127,6 +129,38 @@ def _guard(client, model, data: dict, gathered: list) -> tuple[dict, list[str]]:
     return data, warnings
 
 
+def normalize_candidates(data: dict, gathered: list) -> tuple[dict, list[str]]:
+    """Validasi topic_candidates (spek 4.4): URL harus ada di hasil tool, skor 0-1, field wajib terisi."""
+    blob = json.dumps(gathered, ensure_ascii=False)
+    warnings, out = [], []
+    for c in (data.get("topic_candidates") or []):
+        if not isinstance(c, dict) or not str(c.get("topic") or "").strip():
+            continue
+        try:
+            score = float(c.get("relevance_score"))
+        except (TypeError, ValueError):
+            score = 0.0
+        score = score / 100 if score > 10 else score / 10 if score > 1 else score
+        urls = [u for u in (c.get("source_urls") or []) if isinstance(u, str) and u and u in blob]
+        risk = str(c.get("risk_notes") or "").strip()
+        if not urls:
+            score = min(score, 0.5)
+            risk = (risk + " " if risk else "") + "Tidak ada sumber yang terverifikasi dari hasil pencarian."
+        date = str(c.get("source_date") or "").strip()
+        out.append({"topic": str(c["topic"]).strip(), "description": str(c.get("description") or "").strip(),
+                    "source_urls": urls, "source_date": date if date and date in blob else None,
+                    "relevance_score": round(max(0.0, min(1.0, score)), 2),
+                    "relevance_reason": str(c.get("relevance_reason") or "").strip() or "Alasan tidak diberikan.",
+                    "potential_audience": str(c.get("potential_audience") or "").strip(),
+                    "suggested_angle": str(c.get("suggested_angle") or "").strip(),
+                    "recommended_format": c.get("recommended_format") if c.get("recommended_format") in {"carousel", "video"} else None,
+                    "risk_notes": risk or "Belum ada catatan risiko; verifikasi manual disarankan."})
+    if not out:
+        warnings.append("Research tidak menghasilkan kandidat topik yang valid.")
+    data["topic_candidates"] = sorted(out, key=lambda x: x["relevance_score"], reverse=True)[:5]
+    return data, warnings
+
+
 # ---------- loop agent ----------
 def _for_model(result, limit: int = 500):
     """Model hanya melihat 500 karakter per hasil (hemat token); teks penuh (1000) disimpan untuk ekstraksi fakta."""
@@ -195,6 +229,8 @@ def run(topic: str, industry: str, client=None, max_steps: int = 8, on_step=prin
     warnings = []
     if data is not None:
         data, warnings = _guard(client, model, data, gathered)
+        data, extra = normalize_candidates(data, gathered)
+        warnings = list(warnings) + extra
         data.pop("facts", None)        # model tidak boleh menyuntikkan fakta; facts dibangun KODE (lihat facts.py)
 
         def ask(system: str, user: str) -> str:

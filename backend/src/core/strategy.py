@@ -8,7 +8,7 @@ from sqlalchemy import select, desc
 from sqlalchemy.orm import Session
 
 from src.core.db import (
-    EnterpriseProfile, ContentStrategyItem, PostAnalytics, AnalyticsInsight, Run, SessionLocal, utc_now
+    Campaign, EnterpriseProfile, ContentStrategyItem, PostAnalytics, AnalyticsInsight, Run, SessionLocal, utc_now
 )
 
 log = logging.getLogger("gtnic.strategy")
@@ -131,6 +131,32 @@ def calculate_profile_completeness(profile_data: dict) -> int:
     return int((present / len(required_keys)) * 100)
 
 
+def _apply_research_and_campaigns(templates: list, from_llm: bool, candidates: list, campaigns: list, today: datetime) -> list:
+    """Sesuaikan rencana dengan kampanye aktif dan kandidat riset bersumber (deterministik)."""
+    from src.core.campaigns import ANGLES
+    templates = [dict(t) for t in templates]
+    if campaigns and not any(t.get("campaign_id") for t in templates):
+        camp = campaigns[0]
+        for k, off in enumerate((2, 4, 6)):
+            t = next((x for x in templates if x["offset_days"] == off), None)
+            day = (today + timedelta(days=off)).strftime("%Y-%m-%d")
+            if not t or not camp.start_date <= day <= camp.end_date:
+                continue
+            t.update(campaign_id=camp.id, topic=f"{camp.name}: {ANGLES[k % len(ANGLES)]}", objective=camp.objective[:128],
+                     target_segment=(camp.target_audience or t.get("target_segment") or "Umum")[:128],
+                     rationale=f"Mendukung kampanye '{camp.name}' (pesan utama: {camp.message[:150]}).")
+    if candidates and not from_llm:
+        c = candidates[0]
+        t = next((x for x in templates if x["offset_days"] == 3 and not x.get("campaign_id")), None)
+        if t and c.get("source_urls"):  # hanya kandidat yang punya sumber terverifikasi
+            if c.get("recommended_format") in {"carousel", "video"}:
+                t["format"] = c["recommended_format"]
+            t.update(topic=c["topic"], research_topic=True,
+                     rationale=f"Berbasis riset (relevansi {c.get('relevance_score')}): {c.get('relevance_reason', '')} "
+                               f"Sudut: {c.get('suggested_angle', '')}. Risiko: {c.get('risk_notes', '')}")
+    return templates
+
+
 def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool = True) -> List[ContentStrategyItem]:
     """Menghasilkan atau memperbarui kalender konten 7 hari berbasis konteks perusahaan dan feedback analytics."""
     if reset:
@@ -178,23 +204,32 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
         },
     }
 
-    # Use persisted research snapshots as sourced evidence, without implying absent facts are known.
-    research_evidence = []
-    latest_run = session.scalars(select(Run).order_by(desc(Run.created_at))).first()
-    if latest_run:
-        from src.core.db import ResearchSnapshot
-        snapshot = session.scalars(select(ResearchSnapshot).where(
-            ResearchSnapshot.run_id == latest_run.id, ResearchSnapshot.ok.is_(True)
-        ).order_by(desc(ResearchSnapshot.id))).first()
-        if snapshot:
+    # Riset tersimpan sebagai bukti bersumber. Pakai snapshot ok terbaru (maks 14 hari), bukan hanya dari run terakhir.
+    research_evidence, research_candidates = [], []
+    from src.core.db import ResearchSnapshot
+    snapshot = session.scalars(select(ResearchSnapshot).where(
+        ResearchSnapshot.ok.is_(True)).order_by(desc(ResearchSnapshot.id))).first()
+    if snapshot:
+        age_ok = True
+        if snapshot.created_at:
+            created = snapshot.created_at if snapshot.created_at.tzinfo else snapshot.created_at.replace(tzinfo=timezone.utc)
+            age_ok = (datetime.now(timezone.utc) - created) <= timedelta(days=14)
+        if age_ok:
             try:
                 research_data = json.loads(snapshot.data_json)
                 research_evidence = (research_data.get("sources") or [])[:5]
+                research_candidates = [c for c in (research_data.get("topic_candidates") or [])
+                                       if isinstance(c, dict) and c.get("topic")][:3]
             except (TypeError, json.JSONDecodeError):
-                research_evidence = []
+                research_evidence, research_candidates = [], []
 
     today = datetime.now()
     llm_generated_items = []
+    win_start, win_end = (today + timedelta(days=1)).strftime("%Y-%m-%d"), (today + timedelta(days=7)).strftime("%Y-%m-%d")
+    active_campaigns = session.scalars(select(Campaign).where(
+        Campaign.status == "active", Campaign.start_date <= win_end, Campaign.end_date >= win_start
+    ).order_by(Campaign.end_date).limit(2)).all()
+    campaign_ids = {c.id for c in active_campaigns}
 
     if use_llm:
         try:
@@ -204,12 +239,16 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 "Kamu adalah Social Media Director tingkat Enterprise. Tugasmu adalah membuat rencana konten "
                 "7 hari yang disesuaikan secara presisi dengan profil bisnis, target audiens, pilar konten, "
                 "dan masukan analitik terbaru. "
-                "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\"}]}"
+                "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\", \"campaign_id\": null}]}. campaign_id diisi id kampanye aktif jika item mendukung kampanye, selain itu null"
             )
             insight_context = f"Terbaru Insight Analitik: '{latest_insight.title}' ({latest_insight.observation}); evidence={latest_insight.data_points_json}" if latest_insight else "Belum ada insight historis."
             insight_context += "\nKualitas dataset: " + json.dumps(analytics_context, ensure_ascii=False)
             research_context = json.dumps(research_evidence, ensure_ascii=False) if research_evidence else "Tidak ada riset tersimpan; jangan membuat klaim seolah bersumber."
             products_context = json.dumps(prods, ensure_ascii=False)
+            candidates_context = json.dumps(research_candidates, ensure_ascii=False) if research_candidates else "Tidak ada kandidat topik dari riset."
+            campaigns_context = json.dumps([
+                {"id": c.id, "name": c.name, "objective": c.objective, "audience": c.target_audience, "period": f"{c.start_date}..{c.end_date}",
+                 "message": c.message, "requirements": c.content_requirements} for c in active_campaigns], ensure_ascii=False) if active_campaigns else "Tidak ada kampanye aktif."
             user_prompt = (
                 f"Perusahaan: {profile.company_name}\n"
                 f"Industri: {profile.industry}\n"
@@ -219,7 +258,11 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 f"Tujuan Bisnis: {', '.join(goals)}\n"
                 f"Pilar Konten: {', '.join(pillars)}\n"
                 f"Feedback Analitik: {insight_context}\n"
-                f"Bukti riset dan sumber: {research_context}\n\n"
+                f"Bukti riset dan sumber: {research_context}\n"
+                f"Kandidat topik riset (urut relevansi; patuhi risk_notes, jangan jadikan fakta bila tanpa sumber): {candidates_context}\n"
+                f"Kampanye aktif: {campaigns_context}\n"
+                "Jika ada kampanye aktif, alokasikan minimal 3 dari 7 item untuk mendukungnya (isi campaign_id). "
+                "Gunakan 1-2 kandidat riset yang paling relevan bila cocok.\n\n"
                 "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel dan video Reels, "
                 "dengan objektif yang jelas dan rationale berbasis data bisnis."
             )
@@ -247,7 +290,9 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                         raise ValueError("Format atau offset_days strategi LLM tidak valid")
                     if any(not str(item[field]).strip() for field in required - {"offset_days"}):
                         raise ValueError("Field teks strategi LLM tidak boleh kosong")
-                    validated.append({**item, "offset_days": int(item["offset_days"])})
+                    cid = item.get("campaign_id")
+                    cid = cid if isinstance(cid, int) and cid in campaign_ids else None
+                    validated.append({**item, "offset_days": int(item["offset_days"]), "campaign_id": cid})
                 if {item["offset_days"] for item in validated} != set(range(1, 8)):
                     raise ValueError("Offset strategi LLM harus mencakup tepat 1 sampai 7")
                 llm_generated_items = validated
@@ -328,6 +373,8 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
         }
     ]
 
+    plan_templates = _apply_research_and_campaigns(plan_templates, bool(llm_generated_items),
+                                                   research_candidates, active_campaigns, today)
     items = []
     for tmpl in plan_templates:
         p_date = (today + timedelta(days=tmpl["offset_days"])).strftime("%Y-%m-%d")
@@ -337,6 +384,10 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
         rationale_text += f" [analytics_evidence={json.dumps(analytics_context, ensure_ascii=False)}]"
         if research_evidence:
             rationale_text += f" [research_sources={len(research_evidence)}]"
+        if tmpl.get("research_topic"):
+            rationale_text += " [research_candidate=used]"
+        if tmpl.get("campaign_id"):
+            rationale_text += f" [campaign_id={tmpl['campaign_id']}]"
         insight_id = None
 
         # Jika ada insight analitik, perbarui item kedua/ketiga yang relevan untuk membuktikan closed feedback loop
@@ -347,6 +398,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
 
         item = ContentStrategyItem(
             plan_date=p_date,
+            campaign_id=tmpl.get("campaign_id"),
             topic=tmpl["topic"],
             format=tmpl["format"],
             content_pillar=tmpl["pillar"],

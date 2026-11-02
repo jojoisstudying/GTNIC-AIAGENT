@@ -27,7 +27,8 @@ def _conn():
         if name not in columns:
             c.execute(f"ALTER TABLE assets ADD COLUMN {name} {declaration}")
     columns = {row[1] for row in c.execute("PRAGMA table_info(assets)")}
-    extra_migrations = {"run_id": "TEXT", "sha256": "TEXT", "kind": "TEXT"}
+    extra_migrations = {"run_id": "TEXT", "sha256": "TEXT", "kind": "TEXT",
+                        "source_type": "TEXT", "license_note": "TEXT", "allowed_uses": "TEXT"}
     for name, declaration in extra_migrations.items():
         if name not in columns:
             c.execute(f"ALTER TABLE assets ADD COLUMN {name} {declaration}")
@@ -39,35 +40,73 @@ def add_asset(path: str, tags: list[str], description: str = "", *, status: str 
               person_id: str | None = None, source_path: str | None = None,
               model: str | None = None, prompt: str | None = None,
               cache_key: str | None = None, run_id: str | None = None,
-              kind: str | None = None) -> int:
+              kind: str | None = None, source_type: str | None = None,
+              license_note: str | None = None, allowed_uses: list[str] | None = None) -> int:
     if status not in {"pending_review", "approved", "rejected", "placeholder"}:
         raise ValueError(f"Status asset tidak dikenal: {status}")
     created_at = datetime.now(timezone.utc).isoformat()
     asset_path = Path(path)
     digest = hashlib.sha256(asset_path.read_bytes()).hexdigest() if asset_path.is_file() else None
     with _conn() as c:
-        c.execute("""INSERT INTO assets(path,tags,description,status,person_id,source_path,model,prompt,cache_key,created_at,run_id,sha256,kind)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        c.execute("""INSERT INTO assets(path,tags,description,status,person_id,source_path,model,prompt,cache_key,created_at,run_id,sha256,kind,source_type,license_note,allowed_uses)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(path) DO UPDATE SET tags=excluded.tags, description=excluded.description,
                        status=excluded.status, person_id=excluded.person_id, source_path=excluded.source_path,
                        model=excluded.model, prompt=excluded.prompt, cache_key=excluded.cache_key,
                        run_id=COALESCE(excluded.run_id, assets.run_id), sha256=excluded.sha256,
-                       kind=COALESCE(excluded.kind, assets.kind)""",
+                       kind=COALESCE(excluded.kind, assets.kind),
+                       source_type=COALESCE(excluded.source_type, assets.source_type),
+                       license_note=COALESCE(excluded.license_note, assets.license_note),
+                       allowed_uses=COALESCE(excluded.allowed_uses, assets.allowed_uses)""",
                   (str(path), ",".join(t.strip().lower() for t in tags), description, status,
-                   person_id, source_path, model, prompt, cache_key, created_at, run_id, digest, kind))
+                   person_id, source_path, model, prompt, cache_key, created_at, run_id, digest, kind, source_type, license_note,
+                   ",".join(u.strip().lower() for u in allowed_uses) if allowed_uses is not None else None))
         row = c.execute("SELECT id FROM assets WHERE path=?", (str(path),)).fetchone()
     return int(row[0])
 
 
 def list_assets(status: str | None = None) -> list[dict]:
     with _conn() as c:
-        select_columns = "id,path,tags,description,status,person_id,source_path,model,prompt,cache_key,created_at,run_id,sha256,kind"
+        select_columns = "id,path,tags,description,status,person_id,source_path,model,prompt,cache_key,created_at,run_id,sha256,kind,source_type,license_note,allowed_uses"
         if status:
             rows = c.execute(f"SELECT {select_columns} FROM assets WHERE status=? ORDER BY id", (status,)).fetchall()
         else:
             rows = c.execute(f"SELECT {select_columns} FROM assets ORDER BY id").fetchall()
-    keys = ("id", "path", "tags", "description", "status", "person_id", "source_path", "model", "prompt", "cache_key", "created_at", "run_id", "sha256", "kind")
-    return [dict(zip(keys, (r[0], r[1], r[2].split(","), *r[3:]))) for r in rows]
+    keys = ("id", "path", "tags", "description", "status", "person_id", "source_path", "model", "prompt", "cache_key", "created_at", "run_id", "sha256", "kind",
+            "source_type", "license_note", "allowed_uses")
+    out = [dict(zip(keys, (r[0], r[1], r[2].split(","), *r[3:]))) for r in rows]
+    for a in out:
+        a["allowed_uses"] = [u for u in (a.get("allowed_uses") or "").split(",") if u]
+    return out
+
+
+VALID_USES = {"social_post", "video", "ads", "website", "internal"}
+
+
+def set_permissions(asset_id: int, *, source_type: str | None = None, license_note: str | None = None,
+                    allowed_uses: list[str] | None = None) -> int:
+    """Atur sumber dan izin penggunaan aset (6.6). allowed_uses kosong = hanya internal."""
+    if allowed_uses is not None:
+        bad = [u for u in allowed_uses if u.strip().lower() not in VALID_USES]
+        if bad:
+            raise ValueError(f"allowed_uses tidak valid: {bad}. Pilihan: {sorted(VALID_USES)}")
+    with _conn() as c:
+        cur = c.execute("""UPDATE assets SET source_type=COALESCE(?, source_type), license_note=COALESCE(?, license_note),
+                           allowed_uses=COALESCE(?, allowed_uses) WHERE id=?""",
+                        (source_type, license_note,
+                         ",".join(u.strip().lower() for u in allowed_uses) if allowed_uses is not None else None, asset_id))
+        return cur.rowcount
+
+
+def is_allowed(asset: dict, purpose: str = "social_post") -> bool:
+    """Aset boleh dipakai hanya jika approved DAN izin penggunaannya mencakup tujuan.
+    Aset lama tanpa metadata izin (allowed_uses belum pernah diisi) diperlakukan boleh untuk social_post saja."""
+    if asset.get("status") != "approved":
+        return False
+    uses = asset.get("allowed_uses")
+    if not uses:
+        return purpose == "social_post" if asset.get("source_type") is None else False
+    return purpose in uses
 
 
 def find_cached(cache_key: str) -> dict | None:
@@ -100,12 +139,7 @@ def set_status(asset_selector: int | str, status: str) -> int:
 
 
 def get_asset(asset_id: int) -> dict | None:
-    with _conn() as c:
-        row = c.execute("SELECT id,path,tags,description,status,person_id,source_path,model,prompt,cache_key,created_at,run_id,sha256,kind FROM assets WHERE id=?", (asset_id,)).fetchone()
-    if not row:
-        return None
-    keys = ("id", "path", "tags", "description", "status", "person_id", "source_path", "model", "prompt", "cache_key", "created_at", "run_id", "sha256", "kind")
-    return dict(zip(keys, (row[0], row[1], row[2].split(","), *row[3:])))
+    return next((a for a in list_assets() if a["id"] == asset_id), None)
 
 
 def pending_assets() -> list[dict]:
@@ -144,11 +178,13 @@ def is_cutout(path: str | None) -> bool:
         return False
 
 
-def find_pose(wanted_tags: list[str]) -> str | None:
+def find_pose(wanted_tags: list[str], purpose: str = "social_post") -> str | None:
     """Pick the best approved match, prioritizing real cutouts over opaque photos/placeholders."""
     wanted = {t.strip().lower() for t in wanted_tags or []}
     best, best_key = None, (0, 0, 0, "")
     for a in list_assets(status="approved"):
+        if not is_allowed(a, purpose):
+            continue
         overlap = len(wanted & set(a["tags"]))
         if overlap == 0:
             continue
