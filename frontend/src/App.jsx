@@ -541,12 +541,12 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
-              AUTO-CONTENT AGENT
+              Autonomous Video & Post Publishing Agengt
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 GTNIC 2026
               </span>
-            </h1>
-            <p className="text-xs text-gray-400">Enterprise Social Media Orchestrator • Zero-AI-Slop</p>
+            </h1>w
+            <p className="text-xs text-gray-400">Enterprise Social Media Orchestrator</p>
           </div>
         </div>
 
@@ -582,7 +582,7 @@ export default function App() {
               activeTab === 'generator' ? 'bg-emerald-600 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" /> Pipeline Generator
+            <Sparkles className="w-3.5 h-3.5" /> Buat Konten
           </button>
           <button
             onClick={() => setActiveTab('brand_settings')}
@@ -1088,7 +1088,7 @@ export default function App() {
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4" />
-                        Jalankan Autonomous Pipeline
+                        Buat Konten 
                       </>
                     )}
                   </button>
@@ -1506,7 +1506,7 @@ export default function App() {
                   <div className="px-4 py-3 border-b border-gray-800 bg-gray-950 flex items-center justify-between">
                     <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
                       <Terminal className="w-4 h-4 text-amber-400" />
-                      Agent Thought Process & Tool Calls (Real-Time)
+                      Aktivitas Proses
                     </span>
                     <span className="text-[11px] text-gray-500 font-mono">
                       {events.length} Events Logged
