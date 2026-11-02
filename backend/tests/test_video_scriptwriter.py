@@ -96,6 +96,22 @@ def test_drifted_field_names_and_enums_are_normalized():
     assert script.scenes[0].headline_overlay == "HTTPS AMAN"
     assert script.scenes[1].transition == "crossfade"
 
+def test_reels_prompts_honor_enterprise_context():
+    enterprise_context = {
+        "company": "Canonical Co", "tone": "Direct", "audience": "CTO",
+        "content_pillars": ["Security"], "rules": ["No unsupported claims"],
+        "products_services": [{"name": "Managed Security"}], "business_goals": ["Qualified leads"],
+        "contact_info": {"email": "hello@example.test"},
+        "approval_workflow": {"default_mode": "manual_review"},
+        "operating_preferences": {"timezone": "Asia/Jakarta"},
+    }
+    llm = FakeLLM([good()])
+    sw = VideoScriptwriter(llm_client=llm, enterprise_context=enterprise_context)
+    sw.generate_script(TOPIC, None, 15)
+    user = llm.calls[0]["messages"][1]["content"]
+    for value in ("Canonical Co", "Managed Security", "Qualified leads", "hello@example.test",
+                  "manual_review", "Asia/Jakarta", "No unsupported claims"):
+        assert value in user
 
 def test_markdown_fence_and_think_block_are_tolerated():
     wrapped = "<think>mikir dulu...</think>\n```json\n" + good() + "\n```"

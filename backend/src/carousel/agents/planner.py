@@ -910,7 +910,9 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
         history = load_history(getattr(ctx, "session", None), exclude_run=getattr(ctx, "run_id", None))
     blob = (json.dumps(research, ensure_ascii=False) + json.dumps(brand, ensure_ascii=False) + topic).replace(" ", "")
     brand_view = {k: brand[k] for k in ("company", "industry", "description", "audience", "tone",
-                                        "content_pillars", "rules", "available_poses") if k in brand}
+                                        "content_pillars", "rules", "available_poses", "products_services",
+                                        "business_goals", "target_audience", "contact_info", "approval_workflow",
+                                        "operating_preferences") if k in brand}
     static = dict(brand=json.dumps(brand_view, ensure_ascii=False, separators=(",", ":")), topic=topic,
                   research=json.dumps(research, ensure_ascii=False, separators=(",", ":")),
                   layout_catalog=_layout_catalog_prompt(approved), variety=_variety_note(history, approved))

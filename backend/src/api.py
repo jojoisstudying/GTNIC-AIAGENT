@@ -8,6 +8,8 @@ Provides endpoints for frontend dashboard integration:
 - Static asset / slide image preview serving
 """
 import json
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,9 +22,9 @@ from sqlalchemy import select, desc, func
 from src import config
 from src.carousel import pipeline
 from src.core import auth
-from src.core.db import EnterpriseProfile, ContentStrategyItem, PostAnalytics, AnalyticsInsight
+from src.core.db import EnterpriseProfile, EnterpriseProfileVersion, ContentStrategyItem, PostAnalytics, AnalyticsInsight
 from src.core.strategy import (
-    get_or_create_enterprise_profile, calculate_profile_completeness,
+    get_or_create_enterprise_profile, calculate_profile_completeness, CALENDAR_STATES, CALENDAR_TRANSITIONS,
     generate_7day_strategy, seed_demo_analytics_data
 )
 
@@ -30,10 +32,19 @@ from src.core.context import create_run_context
 from src.core.db import Run, Plan, Design, Event, Publication, SessionLocal
 from src.carousel.layouts import registry
 
+@asynccontextmanager
+async def lifespan(_app):
+    environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if environment in {"production", "prod"} and not auth.get_configured_api_key():
+        raise RuntimeError("GTNIC_API_KEY must be configured before production startup.")
+    yield
+
+
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
     version="1.0.0",
-    description="Enterprise-grade AI Social Media Post Generator (No AI Slop)"
+    description="Enterprise-grade AI Social Media Post Generator (No AI Slop)",
+    lifespan=lifespan,
 )
 
 # Enable CORS for Frontend development (Next.js/Vite/localhost)
@@ -43,8 +54,9 @@ allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip(
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "*"
 ]
+if "*" in allowed_origins:
+    raise RuntimeError("CORS_ORIGINS tidak boleh berisi wildcard '*'.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,6 +144,8 @@ def _execute_resume_task(run_id: str):
         run = session.get(Run, run_id)
         if not run:
             return
+        if run.status == "qc_failed":
+            return
         plan_row = session.scalars(
             select(Plan).where(Plan.run_id == run_id).order_by(desc(Plan.version))
         ).first()
@@ -146,7 +160,20 @@ def _execute_resume_task(run_id: str):
     ctx.llm.cost_usd = run.cost_usd or 0.0
 
     try:
+        qc = pipeline.check_carousel_semantics(plan, brand=brand, topic=run.topic)
+        if not qc.get("ok"):
+            with SessionLocal() as session:
+                run_row = session.get(Run, run_id)
+                if run_row:
+                    run_row.status = "qc_failed"
+                    run_row.error = "; ".join(qc.get("errors", []))
+                    run_row.finished_at = datetime.now(timezone.utc)
+                    session.commit()
+            ctx.emit("error", "semantic_qc_failed_on_resume", step="qc", status="failed",
+                     detail={"errors": qc.get("errors", []), "warnings": qc.get("warnings", [])})
+            return
         design_result = designer.run(plan, brand, config.OUTPUT_DIR / "runs" / run_id / "slides", ctx=ctx)
+        design_result["semantic_qc"] = qc
         with SessionLocal() as session:
             design_version = session.scalar(
                 select(func.max(Design.version)).where(Design.run_id == run_id)
@@ -157,7 +184,8 @@ def _execute_resume_task(run_id: str):
                 version=design_version + 1,
                 ok=bool(design_result.get("ok")),
                 result_json=json.dumps(design_result, ensure_ascii=False),
-                preview_path=design_result.get("preview")
+                preview_path=design_result.get("preview"),
+                semantic_qc_json=json.dumps(qc, ensure_ascii=False),
             )
             session.add(design_row)
 
@@ -166,6 +194,8 @@ def _execute_resume_task(run_id: str):
                 run_row.status = "awaiting_approval"
             elif design_result.get("missing_poses"):
                 run_row.status = "awaiting_assets"
+            elif design_result.get("ok"):
+                run_row.status = "awaiting_approval"
             else:
                 run_row.status = "ok"
             run_row.finished_at = datetime.now(timezone.utc)
@@ -301,7 +331,7 @@ def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
 
 
 def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: bool = True):
-    """Worker task executing video pipeline; selalu menutup run dengan status ok/failed."""
+    """Execute video pipeline; successful QC awaits human approval before publication."""
     import asyncio
     from src.reels.pipeline import VideoPipeline
     from src.video.research_cache import make_researcher
@@ -329,6 +359,8 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
             "issues": list(result.issues),
         }
         status = "ok" if result.ok else "failed"
+        if result.ok:
+            status = "awaiting_approval"
         error = None if result.ok else "; ".join(result.issues) or "QC video gagal"
         _save_video_result(run_id, payload, status, ctx=ctx, error=error)
         ctx.emit("info", "run_finished", step="video", status=status,
@@ -376,13 +408,11 @@ def get_brand_profile():
         return brand_data
     except HTTPException:
         raise
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/brand")
+@app.post("/api/v1/brand", dependencies=[Depends(auth.verify_api_key)])
 def update_brand_profile(req: BrandUpdateRequest):
     """Memperbarui profil brand, nomor telepon, handle, dan tema warna di brand.json."""
     try:
@@ -430,29 +460,43 @@ def update_brand_profile(req: BrandUpdateRequest):
         return {"status": "ok", "message": "Brand profile berhasil diperbarui", "brand": brand_data}
     except HTTPException:
         raise
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 def _validate_image_file(file: UploadFile, max_mb: float = 10.0, allowed_formats=('PNG', 'JPEG', 'WEBP')) -> bytes:
-    """Validates upload size and decodes image bytes to guarantee safe, valid images (BUG-06)."""
+    """Read an image in bounded chunks and verify its decoded format."""
     import io
     from PIL import Image
 
-    contents = file.file.read()
-    if len(contents) > max_mb * 1024 * 1024:
+    max_bytes = int(max_mb * 1024 * 1024)
+    chunks = []
+    total = 0
+    while True:
+        chunk = file.file.read(min(64 * 1024, max_bytes - total + 1))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=400, detail=f"Ukuran file melebihi batas maksimum {max_mb:.0f} MB")
+        chunks.append(chunk)
+    contents = b"".join(chunks)
+    if total > max_bytes:
         raise HTTPException(status_code=400, detail=f"Ukuran file melebihi batas maksimum {max_mb:.0f} MB")
     if len(contents) == 0:
         raise HTTPException(status_code=400, detail="File kosong tidak dapat diupload")
     try:
         im = Image.open(io.BytesIO(contents))
-        im.verify()
-        im = Image.open(io.BytesIO(contents))
         fmt = (im.format or "").upper()
         if fmt not in allowed_formats:
             raise HTTPException(status_code=400, detail=f"Format gambar '{fmt}' tidak didukung; gunakan {allowed_formats}")
+        if im.width * im.height > 40_000_000:
+            raise HTTPException(status_code=400, detail="Resolusi gambar melebihi batas aman (40 megapiksel)")
+        im.load()
+        im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+        normalized = io.BytesIO()
+        im.save(normalized, format="PNG", optimize=True)
+        contents = normalized.getvalue()
     except HTTPException:
         raise
     except Exception as e:
@@ -460,15 +504,15 @@ def _validate_image_file(file: UploadFile, max_mb: float = 10.0, allowed_formats
     return contents
 
 
-@app.post("/api/v1/brand/logo")
+@app.post("/api/v1/brand/logo", dependencies=[Depends(auth.verify_api_key)])
 def upload_brand_logo(file: UploadFile = File(...)):
     """Upload logo brand dan simpan ke assets/logo.png."""
+    logo_path: Path | None = None
     try:
+        contents = _validate_image_file(file, max_mb=5.0)
         assets_dir = config.ROOT / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
         logo_path = assets_dir / "logo.png"
-
-        contents = _validate_image_file(file, max_mb=5.0)
         logo_path.write_bytes(contents)
 
         # Update brand.json logo_path
@@ -481,9 +525,12 @@ def upload_brand_logo(file: UploadFile = File(...)):
         return {"status": "ok", "message": "Logo berhasil disimpan", "path": "assets/logo.png"}
     except HTTPException:
         raise
-    except HTTPException:
-        raise
     except Exception as e:
+        if logo_path is not None:
+            try:
+                logo_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                print(f"[UPLOAD] Failed to clean temporary logo: {cleanup_error}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -741,38 +788,59 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
         problems = publisher.preflight_video(video, caption, run_id=run_row.id, session=ctx.session, ctx=ctx)
         if problems:
             raise HTTPException(status_code=400, detail="; ".join(problems))
+        with SessionLocal() as db_session:
+            cal_item = db_session.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.run_id == run_row.id
+            )).first()
+            if not cal_item or cal_item.status not in {"approved", "approved_to_publish", "scheduled"}:
+                raise HTTPException(status_code=409, detail="Item kalender belum disetujui untuk publikasi.")
+            prior_publication = db_session.scalars(select(Publication).where(
+                Publication.run_id == run_row.id, Publication.status.in_(["intent", "published"])
+            )).first()
+            if prior_publication:
+                raise HTTPException(status_code=409, detail="Run ini sudah memiliki publication berjalan atau berhasil.")
+            cal_item.status = "publishing"
+            db_session.commit()
         result = publisher.publish_reel(video["video_path"], caption, share_to_feed=share_to_feed, ctx=ctx)
         is_ok = bool(result.get("media_id"))
 
-        # Link publication to calendar item status and record analytics tracking entry
+        # Record tracking against the persisted publication; NULL means metrics have not been ingested.
         if is_ok:
-            try:
-                with SessionLocal() as db_session:
-                    cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
-                    if cal_item:
-                        cal_item.status = "published"
-                    post_analytics = PostAnalytics(
-                        publication_id=None,
-                        media_id=result.get("media_id") or f"pub_reel_{run_row.id[:8]}",
-                        permalink=result.get("permalink") or f"https://instagram.com/reel/{run_row.id[:8]}",
-                        topic=run_row.topic,
-                        format="video",
-                        content_pillar="Keamanan Sistem & Siber",
-                        reach=0,
-                        impressions=0,
-                        likes=0,
-                        comments=0,
-                        shares=0,
-                        saves=0,
-                        profile_visits=0,
-                        source="live_instagram_tracking",
-                        is_simulated=False,
-                        data_timestamp=datetime.now(timezone.utc)
-                    )
-                    db_session.add(post_analytics)
+            with SessionLocal() as db_session:
+                publication = db_session.scalars(select(Publication).where(
+                    Publication.run_id == run_row.id, Publication.status == "published"
+                ).order_by(desc(Publication.id))).first()
+                cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
+                if cal_item:
+                    cal_item.status = "published"
+                if publication:
+                    analytics = db_session.scalars(select(PostAnalytics).where(
+                        PostAnalytics.publication_id == publication.id
+                    )).first()
+                    if analytics is None:
+                        analytics = PostAnalytics(
+                            publication_id=publication.id,
+                            run_id=run_row.id,
+                            strategy_item_id=cal_item.id if cal_item else None,
+                            media_id=publication.media_id,
+                            permalink=publication.permalink,
+                            topic=run_row.topic,
+                            format="video",
+                            content_pillar=cal_item.content_pillar if cal_item else "Belum diklasifikasikan",
+                            source="instagram_api_pending_metrics",
+                            is_simulated=False,
+                        )
+                        db_session.add(analytics)
+                db_session.commit()
+        else:
+            with SessionLocal() as db_session:
+                cal_item = db_session.scalars(select(ContentStrategyItem).where(
+                    ContentStrategyItem.run_id == run_row.id
+                )).first()
+                if cal_item:
+                    cal_item.status = "publication_failed"
+                    cal_item.approval_notes = str(result.get("error") or "Publisher returned no media identifier")[:500]
                     db_session.commit()
-            except Exception as e:
-                print(f"[PUBLISH REEL] Failed to update calendar/analytics state: {e}")
 
         return {
             "run_id": run_row.id,
@@ -785,6 +853,17 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            with SessionLocal() as db_session:
+                cal_item = db_session.scalars(select(ContentStrategyItem).where(
+                    ContentStrategyItem.run_id == run_row.id
+                )).first()
+                if cal_item and cal_item.status == "publishing":
+                    cal_item.status = "publication_failed"
+                    cal_item.approval_notes = f"Publication gagal: {e}"[:500]
+                    db_session.commit()
+        except Exception as status_exc:
+            print(f"[PUBLISH REEL] Failed to record publication failure state: {status_exc}")
         print(f"[PUBLISH REEL ERROR] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
     finally:
@@ -801,6 +880,20 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
         run_row = session.get(Run, run_id)
         if not run_row:
             raise HTTPException(status_code=404, detail="Run tidak ditemukan")
+        if run_row.status in {"qc_failed", "failed", "generation_failed"}:
+            raise HTTPException(status_code=409, detail=f"Run tidak dapat dipublikasikan dalam status '{run_row.status}'.")
+        cal_item = session.scalars(select(ContentStrategyItem).where(
+            ContentStrategyItem.run_id == run_id
+        )).first()
+        if not cal_item:
+            raise HTTPException(status_code=409, detail="Run tidak memiliki item kalender yang disetujui untuk publikasi.")
+        if cal_item.status not in {"approved", "approved_to_publish", "scheduled"}:
+            raise HTTPException(status_code=409, detail="Item kalender belum disetujui untuk publikasi.")
+        prior_publication = session.scalars(select(Publication).where(
+            Publication.run_id == run_id, Publication.status.in_(["intent", "published"])
+        )).first()
+        if prior_publication:
+            raise HTTPException(status_code=409, detail="Run ini sudah memiliki publication berjalan atau berhasil.")
 
         plan_row = session.scalars(
             select(Plan).where(Plan.run_id == run_id).order_by(desc(Plan.version))
@@ -814,11 +907,18 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
             maybe_video = json.loads(design_row.result_json or "{}")
             if maybe_video.get("type") == "video":
                 video_payload = maybe_video
+                if not video_payload.get("ok"):
+                    raise HTTPException(status_code=409, detail="QC video gagal; publikasi diblokir.")
         if video_payload is None:
             if not plan_row or not design_row:
                 raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
             plan_data = json.loads(plan_row.plan_json)
             design_data = json.loads(design_row.result_json)
+            semantic_qc = design_data.get("semantic_qc") or {}
+            if semantic_qc and not semantic_qc.get("ok"):
+                raise HTTPException(status_code=409, detail="Semantic QC gagal; publikasi diblokir.")
+            if not design_row.ok:
+                raise HTTPException(status_code=409, detail="QC/render desain gagal; publikasi diblokir.")
 
     # Reels diproses SETELAH sesi baca ditutup: upload + pemrosesan video memakan menit, dan transaksi baca
     # yang masih terbuka bisa memicu "database is locked" di SQLite saat publisher menulis baris intent.
@@ -833,41 +933,48 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
         if problems:
             raise HTTPException(status_code=400, detail="; ".join(problems))
 
+        with SessionLocal() as db_session:
+            cal_item = db_session.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.run_id == run_id
+            )).first()
+            if cal_item:
+                cal_item.status = "publishing"
+                db_session.commit()
+
         slide_paths = [s["path"] for s in design_data.get("slides", [])]
         result = publisher.publish(plan_data, slide_paths, ctx=ctx)
         is_ok = bool(result.get("ok")) or bool(result.get("media_id"))
 
-        # Link publication to calendar item status and record analytics tracking entry
+        # Record tracking against the persisted publication; NULL means metrics have not been ingested.
         if is_ok:
-            try:
-                with SessionLocal() as db_session:
-                    cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
-                    if cal_item:
-                        cal_item.status = "published"
-                    
-                    # Record analytics tracking entry connected to publication
-                    post_analytics = PostAnalytics(
-                        publication_id=None,
-                        media_id=result.get("media_id") or f"pub_{run_id[:8]}",
-                        permalink=result.get("permalink") or f"https://instagram.com/p/{run_id[:8]}",
-                        topic=run_row.topic,
-                        format="carousel",
-                        content_pillar=plan_data.get("content_pillar") or "Edukasi Bisnis",
-                        reach=0,
-                        impressions=0,
-                        likes=0,
-                        comments=0,
-                        shares=0,
-                        saves=0,
-                        profile_visits=0,
-                        source="live_instagram_tracking",
-                        is_simulated=False,
-                        data_timestamp=datetime.now(timezone.utc)
-                    )
-                    db_session.add(post_analytics)
-                    db_session.commit()
-            except Exception as e:
-                print(f"[PUBLISH] Failed to update calendar/analytics state: {e}")
+            with SessionLocal() as db_session:
+                publication = db_session.scalars(select(Publication).where(
+                    Publication.run_id == run_id, Publication.status == "published"
+                ).order_by(desc(Publication.id))).first()
+                cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
+                if cal_item:
+                    cal_item.status = "published"
+                if publication:
+                    analytics = db_session.scalars(select(PostAnalytics).where(
+                        PostAnalytics.publication_id == publication.id
+                    )).first()
+                    if analytics is None:
+                        db_session.add(PostAnalytics(
+                            publication_id=publication.id,
+                            run_id=run_id,
+                            strategy_item_id=cal_item.id if cal_item else None,
+                            media_id=publication.media_id,
+                            permalink=publication.permalink,
+                            topic=run_row.topic,
+                            format="carousel",
+                            content_pillar=cal_item.content_pillar if cal_item else plan_data.get("content_pillar", "Belum diklasifikasikan"),
+                            source="instagram_api_pending_metrics",
+                            is_simulated=False,
+                        ))
+                elif not is_ok and cal_item:
+                    cal_item.status = "publication_failed"
+                    cal_item.approval_notes = str(result.get("error") or "Publisher returned no media identifier")[:500]
+                db_session.commit()
 
         return {
             "run_id": run_id,
@@ -876,14 +983,27 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
             "permalink": result.get("permalink"),
             "error": result.get("error")
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        try:
+            with SessionLocal() as db_session:
+                cal_item = db_session.scalars(select(ContentStrategyItem).where(
+                    ContentStrategyItem.run_id == run_id
+                )).first()
+                if cal_item and cal_item.status == "publishing":
+                    cal_item.status = "publication_failed"
+                    cal_item.approval_notes = f"Publication gagal: {e}"[:500]
+                    db_session.commit()
+        except Exception as status_exc:
+            print(f"[PUBLISH] Failed to record publication failure state: {status_exc}")
         print(f"[PUBLISH ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         ctx.close()
 
 
-@app.post("/api/v1/assets/{asset_id}/review")
+@app.post("/api/v1/assets/{asset_id}/review", dependencies=[Depends(auth.verify_api_key)])
 def review_pending_asset(asset_id: int, status: str = "approved"):
     """Menyetujui (approve) atau menolak (reject) pose hasil generate Cloudflare."""
     from src.carousel.tools import asset_library, cloudflare_pose_generator
@@ -909,15 +1029,11 @@ def review_pending_asset(asset_id: int, status: str = "approved"):
         }
     except HTTPException:
         raise
-    except HTTPException:
-        raise
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/runs/{run_id}/resume")
+@app.post("/api/v1/runs/{run_id}/resume", dependencies=[Depends(auth.verify_api_key)])
 def resume_run_endpoint(run_id: str, background_tasks: BackgroundTasks):
     """Melanjutkan rendering run yang sebelumnya berstatus awaiting_approval setelah aset disetujui."""
     with SessionLocal() as session:
@@ -938,7 +1054,7 @@ def resume_run_endpoint(run_id: str, background_tasks: BackgroundTasks):
     }
 
 
-@app.post("/api/v1/assets/{asset_id}/regenerate")
+@app.post("/api/v1/assets/{asset_id}/regenerate", dependencies=[Depends(auth.verify_api_key)])
 def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
                              background_tasks: BackgroundTasks):
     """Buat ulang pose yang ditolak (kandidat baru, tetap perlu review manusia).
@@ -1003,7 +1119,7 @@ def regenerate_pose_endpoint(asset_id: int, req: RegeneratePoseRequest,
     }
 
 
-@app.post("/api/v1/assets/upload")
+@app.post("/api/v1/assets/upload", dependencies=[Depends(auth.verify_api_key)])
 def upload_talent_reference(
     file: UploadFile = File(...),
     person_id: str = Form("operator_01"),
@@ -1011,15 +1127,15 @@ def upload_talent_reference(
 ):
     """Upload mentahan foto orang tanpa pose untuk referensi Cloudflare Workers AI."""
     from src.carousel.tools.asset_library import add_asset
+    dest_path: Path | None = None
     try:
-        people_dir = config.ROOT / "data" / "people" / person_id
-        people_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = people_dir / "reference.png"
-
         import re
         if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', person_id):
             raise HTTPException(status_code=400, detail="person_id hanya boleh alfanumerik, underscore, atau tanda hubung (-)")
         contents = _validate_image_file(file, max_mb=10.0)
+        people_dir = config.ROOT / "data" / "people" / person_id
+        people_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = people_dir / "reference.png"
         dest_path.write_bytes(contents)
 
         # Daftarkan juga ke asset_library agar langsung muncul di Asset Library UI
@@ -1041,9 +1157,14 @@ def upload_talent_reference(
         }
     except HTTPException:
         raise
-    except HTTPException:
-        raise
     except Exception as e:
+        if dest_path is not None:
+            try:
+                dest_path.unlink(missing_ok=True)
+                if dest_path.parent.exists() and not any(dest_path.parent.iterdir()):
+                    dest_path.parent.rmdir()
+            except OSError as cleanup_error:
+                print(f"[UPLOAD] Failed to clean temporary reference file: {cleanup_error}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1118,15 +1239,11 @@ def list_system_assets(status: Optional[str] = None):
         }
     except HTTPException:
         raise
-    except HTTPException:
-        raise
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/runs/generate-video")
+@app.post("/api/v1/runs/generate-video", dependencies=[Depends(auth.verify_api_key)])
 def create_video_run(req: VideoRunRequest, background_tasks: BackgroundTasks):
     """Memicu pipeline pembuatan short-form video vertikal (Script -> TTS -> B-Roll -> Assembly -> QC)."""
     brand = pipeline.load_brand()
@@ -1208,6 +1325,12 @@ def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
         score = calculate_profile_completeness(req.model_dump())
         prof.completeness_score = score
         prof.updated_at = datetime.now(timezone.utc)
+        version = prof.updated_at.isoformat()
+        session.add(EnterpriseProfileVersion(
+            profile_id=prof.id,
+            version=version,
+            snapshot_json=json.dumps({**req.model_dump(), "id": prof.id, "version": version}, ensure_ascii=False),
+        ))
 
         # Sinkronkan ringkasan dasar ke config/brand.json
         try:
@@ -1262,14 +1385,15 @@ def get_strategy_calendar_endpoint(regenerate: bool = False):
                     "status": it.status,
                     "approval_notes": it.approval_notes,
                     "run_id": it.run_id,
-                    "feedback_insight_id": it.feedback_insight_id
+                    "feedback_insight_id": it.feedback_insight_id,
+                    "is_published": it.status == "published",
                 }
                 for it in items
             ]
         }
 
 
-@app.patch("/api/v1/strategy/calendar/{item_id}")
+@app.patch("/api/v1/strategy/calendar/{item_id}", dependencies=[Depends(auth.verify_api_key)])
 def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
     """Approve, reject, reschedule, atau edit item kalender konten."""
     with SessionLocal() as session:
@@ -1278,9 +1402,15 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
             raise HTTPException(status_code=404, detail="Item strategi tidak ditemukan")
 
         if req.status:
-            valid_statuses = {"draft", "awaiting_approval", "approved", "scheduled", "rejected", "published"}
-            if req.status not in valid_statuses:
+            if req.status not in CALENDAR_STATES:
                 raise HTTPException(status_code=400, detail=f"Status tidak valid: {req.status}")
+            if req.status != item.status and req.status not in CALENDAR_TRANSITIONS.get(item.status, set()):
+                raise HTTPException(status_code=409,
+                                    detail=f"Transisi status tidak diizinkan: {item.status} -> {req.status}")
+            if req.status in {"approved", "approved_to_publish", "scheduled"} and item.run_id:
+                linked_run = session.get(Run, item.run_id)
+                if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
+                    raise HTTPException(status_code=409, detail="Run gagal QC/generasi; approval diblokir.")
             item.status = req.status
 
         if req.plan_date:
@@ -1309,6 +1439,10 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
                 status_code=400,
                 detail=f"Item strategi belum disetujui (status saat ini: '{item.status}'). Setujui (Approve) item terlebih dahulu sebelum digenerate."
             )
+        if item.run_id:
+            linked_run = session.get(Run, item.run_id)
+            if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
+                raise HTTPException(status_code=409, detail="Run sebelumnya gagal QC/generasi; buat run baru setelah memperbaiki konten.")
 
         brand = pipeline.load_brand()
         ctx = create_run_context(item.topic, brand)
@@ -1338,10 +1472,10 @@ def get_analytics_dashboard_endpoint():
         records = seed_demo_analytics_data(session)
         insights = session.scalars(select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))).all()
 
-        total_reach = sum(r.reach for r in records)
-        total_likes = sum(r.likes for r in records)
-        total_saves = sum(r.saves for r in records)
-        total_comments = sum(r.comments for r in records)
+        total_reach = sum(r.reach or 0 for r in records)
+        total_likes = sum(r.likes or 0 for r in records)
+        total_saves = sum(r.saves or 0 for r in records)
+        total_comments = sum(r.comments or 0 for r in records)
 
         return {
             "summary": {
@@ -1350,8 +1484,9 @@ def get_analytics_dashboard_endpoint():
                 "total_engagement": total_likes + total_saves + total_comments,
                 "total_saves": total_saves,
                 "data_source": records[0].source if records else "none",
-                "is_simulated": records[0].is_simulated if records else False,
-                "last_sync": records[0].data_timestamp.isoformat() if records else None
+                "is_simulated": all(r.is_simulated for r in records) if records else False,
+                "pending_ingestion": sum(r.ingestion_status == "pending" for r in records),
+                "last_sync": next((r.data_timestamp.isoformat() for r in records if r.data_timestamp), None)
             },
             "posts": [
                 {
@@ -1367,7 +1502,10 @@ def get_analytics_dashboard_endpoint():
                     "saves": r.saves,
                     "profile_visits": r.profile_visits,
                     "permalink": r.permalink,
-                    "date": r.data_timestamp.strftime("%Y-%m-%d")
+                    "date": r.data_timestamp.strftime("%Y-%m-%d") if r.data_timestamp else None,
+                    "source": r.source,
+                    "is_simulated": r.is_simulated,
+                    "ingestion_status": r.ingestion_status,
                 }
                 for r in records
             ],

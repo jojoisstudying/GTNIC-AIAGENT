@@ -135,15 +135,16 @@ class VideoScriptwriter:
     """Membuat naskah storyboard terstruktur dari topik dan riset."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None,
-                 emit: Optional[Callable[..., None]] = None):
+                 emit: Optional[Callable[..., None]] = None,
+                 enterprise_context: Optional[Dict[str, Any]] = None):
         self.llm = llm_client or LLMClient()
         self._emit = emit or (lambda *a, **k: None)
+        self.enterprise_context = enterprise_context
         self.last_meta: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------ prompt
 
-    @staticmethod
-    def build_user_prompt(topic: str, target_sec: int, budget: Dict[str, int],
+    def build_user_prompt(self, topic: str, target_sec: int, budget: Dict[str, int],
                           research_context: Optional[str]) -> str:
         per_scene = max(budget["total_words"] // budget["scenes"], 6)
         prompt = (
@@ -156,15 +157,29 @@ class VideoScriptwriter:
 
         # Enterprise context injection
         try:
-            from src.carousel.pipeline import load_brand
-            brand = load_brand()
+            brand = self.enterprise_context
+            if brand is None:
+                from src.carousel.pipeline import load_brand
+                brand = load_brand()
             company = brand.get("company")
             tone = brand.get("tone")
             audience = brand.get("audience")
             pillars = ", ".join(brand.get("content_pillars") or [])
             rules = "\n- ".join(brand.get("rules") or [])
+            products = brand.get("products_services") or []
+            goals = brand.get("business_goals") or []
+            contact = brand.get("contact_info") or {}
+            workflow = brand.get("approval_workflow") or {}
+            operating = brand.get("operating_preferences") or {}
 
             enterprise_block = f"\n\nKONTEKS PERUSAHAAN (ENTERPRISE PROFILE):\n- Perusahaan: {company}\n- Tone: {tone}\n- Target Audiens: {audience}\n- Content Pillars: {pillars}"
+            enterprise_block += (
+                f"\n- Produk dan layanan: {json.dumps(products, ensure_ascii=False)}"
+                f"\n- Tujuan bisnis: {json.dumps(goals, ensure_ascii=False)}"
+                f"\n- Informasi kontak resmi: {json.dumps(contact, ensure_ascii=False)}"
+                f"\n- Aturan approval: {json.dumps(workflow, ensure_ascii=False)}"
+                f"\n- Preferensi operasi: {json.dumps(operating, ensure_ascii=False)}"
+            )
             if rules:
                 enterprise_block += f"\n- Brand Guardrail Rules:\n- {rules}"
             prompt += enterprise_block

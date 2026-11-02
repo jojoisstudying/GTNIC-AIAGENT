@@ -4,6 +4,7 @@ import hashlib
 import io
 from pathlib import Path
 import re
+import subprocess
 import uuid
 
 import requests
@@ -67,14 +68,31 @@ def _prepare_reference(source: bytes) -> bytes:
 
 
 def _remove_background(image_bytes: bytes) -> bytes:
-    """Return a tightly cropped transparent PNG using the local rembg model."""
+    """Return a tightly cropped transparent PNG using an isolated rembg environment."""
     global _REMBG_SESSION
     try:
-        from rembg import new_session, remove
-
-        if _REMBG_SESSION is None:
-            _REMBG_SESSION = new_session("u2net")
-        cutout = remove(image_bytes, session=_REMBG_SESSION)
+        try:
+            from rembg import new_session, remove
+        except ImportError:
+            rembg_python = config.opt("REMBG_PYTHON", "").strip()
+            if not rembg_python:
+                raise RuntimeError(
+                    "rembg is optional; configure REMBG_PYTHON to the interpreter installed from "
+                    "backend/requirements-image-processing.txt"
+                )
+            worker = Path(__file__).resolve().parents[2] / "tools" / "rembg_worker.py"
+            result = subprocess.run(
+                [rembg_python, str(worker)], input=image_bytes, capture_output=True,
+                check=False, timeout=180,
+            )
+            if result.returncode:
+                message = result.stderr.decode("utf-8", errors="replace")[-1000:]
+                raise RuntimeError(f"Isolated rembg worker failed: {message}")
+            cutout = result.stdout
+        else:
+            if _REMBG_SESSION is None:
+                _REMBG_SESSION = new_session("u2net")
+            cutout = remove(image_bytes, session=_REMBG_SESSION)
         with Image.open(io.BytesIO(cutout)) as image:
             image = image.convert("RGBA")
             alpha = image.getchannel("A")
@@ -88,7 +106,9 @@ def _remove_background(image_bytes: bytes) -> bytes:
             output = io.BytesIO()
             image.crop(bbox).save(output, format="PNG", optimize=True)
             return output.getvalue()
-    except RuntimeError:
+    except RuntimeError as exc:
+        if "REMBG_PYTHON" in str(exc) or "Isolated rembg worker failed" in str(exc):
+            raise
         raise
     except Exception as exc:
         raise RuntimeError(

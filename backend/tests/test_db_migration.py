@@ -38,9 +38,16 @@ def test_upgrade_legacy_assets_preserves_rows_and_adds_pipeline_schema(tmp_path:
         ).one()
     assert tuple(row) == (7, "data/assets/manual.png", "senyum", "manual approved asset", "approved")
     assert {"runs", "research_snapshots", "plans", "designs", "events", "publications",
-            "credentials_status"}.issubset(set(inspect(engine).get_table_names()))
+            "credentials_status", "enterprise_profile_versions"}.issubset(set(inspect(engine).get_table_names()))
     asset_columns = {column["name"] for column in inspect(engine).get_columns("assets")}
     assert {"run_id", "sha256", "kind", "cache_key", "created_at"}.issubset(asset_columns)
+    assert {"publication_id", "ingestion_status", "data_timestamp"}.issubset(
+        {column["name"] for column in inspect(engine).get_columns("post_analytics")}
+    )
+    assert {"enterprise_profile_id", "enterprise_profile_version"}.issubset(
+        {column["name"] for column in inspect(engine).get_columns("runs")}
+    )
+    assert "semantic_qc_json" in {column["name"] for column in inspect(engine).get_columns("designs")}
     engine.dispose()
 
 
@@ -50,3 +57,16 @@ def test_sqlalchemy_engine_uses_sqlite_memory() -> None:
         assert inspect(engine).get_table_names() == []
     finally:
         engine.dispose()
+
+
+def test_optional_image_processing_requirements_are_separate():
+    root = Path(__file__).resolve().parents[1]
+    core = (root / "requirements.txt").read_text(encoding="utf-8")
+    optional = (root / "requirements-image-processing.txt").read_text(encoding="utf-8")
+    assert "moviepy==2.2.1" in core and "Pillow==11.3.0" in core
+    assert "rembg[cpu]==2.0.82" in optional and "Pillow==12.3.0" in optional
+    active_requirements = [line.strip() for line in core.splitlines()
+                           if line.strip() and not line.lstrip().startswith("#")]
+    assert not any(line.startswith("rembg") for line in active_requirements)
+
+

@@ -1,4 +1,10 @@
 const API_BASE = '';
+const API_KEY_STORAGE = 'gtnic-api-key';
+
+const protectedHeaders = (headers = {}) => {
+  const key = window.localStorage.getItem(API_KEY_STORAGE);
+  return { ...headers, ...(key ? { 'X-API-Key': key } : {}) };
+};
 
 export const api = {
   getBrand: async () => {
@@ -32,7 +38,7 @@ export const api = {
   generateCarousel: async (topic, fresh = true) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ topic, fresh, include_design: true })
     });
     if (!res.ok) throw new Error('Gagal memicu pembuatan carousel');
@@ -42,7 +48,7 @@ export const api = {
   generateVideo: async (topic, targetDuration = 30, fresh = true) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/generate-video`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ topic, target_duration: targetDuration, fresh })
     });
     if (!res.ok) throw new Error('Gagal memicu pembuatan video');
@@ -65,7 +71,7 @@ export const api = {
   publishToInstagram: async (runId, options) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/publish`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+        headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       ...(options ? { body: JSON.stringify(options) } : {})
     });
     const data = await res.json().catch(() => ({}));
@@ -78,7 +84,7 @@ export const api = {
   updateBrand: async (brandData) => {
     const res = await fetch(`${API_BASE}/api/v1/brand`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+        headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(brandData)
     });
     if (!res.ok) {
@@ -93,6 +99,7 @@ export const api = {
     formData.append('file', file);
     const res = await fetch(`${API_BASE}/api/v1/brand/logo`, {
       method: 'POST',
+      headers: protectedHeaders(),
       body: formData
     });
     if (!res.ok) {
@@ -108,6 +115,7 @@ export const api = {
     formData.append('person_id', personId);
     const res = await fetch(`${API_BASE}/api/v1/assets/upload`, {
       method: 'POST',
+      headers: protectedHeaders(),
       body: formData
     });
     if (!res.ok) {
@@ -119,7 +127,8 @@ export const api = {
 
   reviewAsset: async (assetId, status = 'approved') => {
     const res = await fetch(`${API_BASE}/api/v1/assets/${assetId}/review?status=${status}`, {
-      method: 'POST'
+      method: 'POST',
+      headers: protectedHeaders(),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -132,7 +141,7 @@ export const api = {
   regeneratePose: async (assetId, { runId = null, prompt = '' } = {}) => {
     const res = await fetch(`${API_BASE}/api/v1/assets/${assetId}/regenerate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ run_id: runId, prompt })
     });
     const data = await res.json().catch(() => ({}));
@@ -144,7 +153,8 @@ export const api = {
 
   resumeRun: async (runId) => {
     const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/resume`, {
-      method: 'POST'
+      method: 'POST',
+      headers: protectedHeaders(),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -163,7 +173,7 @@ export const api = {
   updateEnterpriseProfile: async (profileData) => {
     const res = await fetch(`${API_BASE}/api/v1/enterprise/profile`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: protectedHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(profileData)
     });
     if (!res.ok) {
@@ -183,7 +193,7 @@ export const api = {
   updateStrategyItem: async (itemId, action) => {
     const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: protectedHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(action)
     });
     if (!res.ok) {
@@ -195,7 +205,8 @@ export const api = {
 
   generateFromStrategyItem: async (itemId) => {
     const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}/generate`, {
-      method: "POST"
+      method: "POST",
+      headers: protectedHeaders(),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -209,5 +220,10 @@ export const api = {
     const res = await fetch(`${API_BASE}/api/v1/analytics/dashboard`);
     if (!res.ok) throw new Error("Gagal mengambil data analytics dashboard");
     return res.json();
+  },
+
+  setApiKey: (key) => {
+    if (key?.trim()) window.localStorage.setItem(API_KEY_STORAGE, key.trim());
+    else window.localStorage.removeItem(API_KEY_STORAGE);
   },
 };

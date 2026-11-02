@@ -73,6 +73,19 @@ def test_strategy_calendar_generation_and_approval(client):
     assert first_item["scheduled_slot"] == "10:30 WIB"
 
 
+def test_calendar_rejects_invalid_state_transitions(client):
+    items = client.get("/api/v1/strategy/calendar").json()["items"]
+    item_id = items[0]["id"]
+    # draft -> published must not bypass approval/publication lifecycle.
+    response = client.patch(f"/api/v1/strategy/calendar/{item_id}", json={"status": "published"})
+    assert response.status_code == 409
+
+    approved = client.patch(f"/api/v1/strategy/calendar/{item_id}", json={"status": "approved"})
+    assert approved.status_code == 200
+    published = client.patch(f"/api/v1/strategy/calendar/{item_id}", json={"status": "published"})
+    assert published.status_code == 409
+
+
 def test_analytics_dashboard_and_feedback_traceability(client):
     res = client.get("/api/v1/analytics/dashboard")
     assert res.status_code == 200
@@ -82,13 +95,19 @@ def test_analytics_dashboard_and_feedback_traceability(client):
     assert summary["total_reach"] > 0
     assert summary["is_simulated"] is True
     assert "demo_seed_dataset" in summary["data_source"]
+    assert summary["pending_ingestion"] == 0
+    assert all(post["is_simulated"] is True for post in data["posts"])
+    assert all(post["ingestion_status"] == "complete" for post in data["posts"])
 
     # Verify insights are present
     insights = data["insights"]
     assert len(insights) >= 2
-    assert any(ins["applied_to_strategy"] is True for ins in insights)
+    assert all("record_ids" in ins["data_points"] for ins in insights)
+    assert all(ins["data_points"]["sample_size"] >= 3 for ins in insights)
 
     # Check that calendar item reflects insight adjustment (FEATURE-03 closed loop)
     cal_res = client.get("/api/v1/strategy/calendar")
     cal_items = cal_res.json()["items"]
     assert any(it.get("feedback_insight_id") is not None for it in cal_items)
+    applied_ids = {it["feedback_insight_id"] for it in cal_items if it.get("feedback_insight_id")}
+    assert applied_ids <= {ins["id"] for ins in insights}

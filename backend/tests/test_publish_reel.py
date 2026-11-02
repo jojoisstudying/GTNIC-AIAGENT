@@ -95,6 +95,8 @@ def test_publish_reel_writes_intent_then_published(test_db, monkeypatch):
     assert names == ["publication_intent", "publication_published"]
     assert ctx.events[0][2]["detail"]["format"] == "reel"
     assert json.loads(publisher.PUBLISHED_FILE.read_text())[0]["media_id"] == "IGREEL1"
+    assert pub.published_at is not None
+    assert pub.scheduled_for is None
 
 
 def test_publish_reel_failure_marks_row_failed_and_reraises(test_db, monkeypatch):

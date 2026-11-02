@@ -1,6 +1,7 @@
 """Run-scoped dependencies and lifecycle for a single content generation."""
 from dataclasses import dataclass, field
 import uuid
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ class RunContext:
     """Shared state and clients passed from pipeline orchestration into agents/tools."""
     run_id: str
     brand: dict[str, Any]
+    enterprise_context: dict[str, Any]
     session: Session
     emitter: EventEmitter
     llm: LLMClient
@@ -41,7 +43,10 @@ def create_run_context(topic: str, brand: dict[str, Any], *,
     session = session_factory()
     if run_id is None:
         run_id = uuid.uuid4().hex
-        run = Run(id=run_id, topic=topic, brand_id=str(brand.get("company", "")), status="running")
+        profile_id = brand.get("enterprise_profile_id")
+        profile_version = str(brand.get("enterprise_profile_updated_at") or "") or None
+        run = Run(id=run_id, topic=topic, brand_id=str(brand.get("company", "")), status="running",
+                  enterprise_profile_id=profile_id, enterprise_profile_version=profile_version)
         session.add(run)
         session.commit()
     elif session.get(Run, run_id) is None:
@@ -53,4 +58,5 @@ def create_run_context(topic: str, brand: dict[str, Any], *,
     tavily_pool = KeyPool("tavily", emitter=emitter)
     llm = LLMClient(emitter=emitter, budget=budget, key_pool=groq_pool)
     http = HttpClient(emitter)
-    return RunContext(run_id, brand, session, emitter, llm, http, budget or {}, tavily_pool=tavily_pool)
+    return RunContext(run_id, brand, json.loads(json.dumps(brand)), session, emitter, llm, http,
+                      budget or {}, tavily_pool=tavily_pool)

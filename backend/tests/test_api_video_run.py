@@ -65,7 +65,7 @@ def test_success_marks_run_ok_and_stores_video(env, monkeypatch):
 
     with factory() as s:
         run = s.get(Run, run_id)
-        assert run.status == "ok"
+        assert run.status == "awaiting_approval"
         assert run.finished_at is not None
         design = s.scalars(select(Design).where(Design.run_id == run_id)).one()
         assert design.plan_id is None
@@ -88,7 +88,7 @@ def test_get_run_status_exposes_video_url(env, monkeypatch):
 
     body = api.get_run_status(run_id)
     assert body["format"] == "video"
-    assert body["status"] == "ok"
+    assert body["status"] == "awaiting_approval"
     assert body["video"]["url"] == f"/static/output/reels/reels_{run_id}.mp4"
     assert body["design"] is None
 
@@ -107,6 +107,19 @@ def test_qc_failure_marks_run_failed_with_issues(env, monkeypatch):
         run = s.get(Run, run_id)
         assert run.status == "failed"
         assert "Missing audio stream" in run.error
+
+
+def test_video_failure_remains_non_publishable(env, monkeypatch):
+    factory, _, run_id = env
+    monkeypatch.setattr(
+        "src.reels.pipeline.VideoPipeline",
+        _fake_pipeline(lambda p: VideoRunResult(ok=False, video_path=p, issues=["QC failed"], scenes_count=2)),
+    )
+    api._execute_video_pipeline_task(run_id, "topik uji", 30)
+    with factory() as session:
+        run = session.get(Run, run_id)
+        assert run.status == "failed"
+        assert run.error
 
 
 def test_script_failure_shows_readable_error_on_run(env, monkeypatch):

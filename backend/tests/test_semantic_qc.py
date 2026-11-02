@@ -14,8 +14,10 @@ def test_semantic_qc_detects_duplicate_headlines():
             {"role": "cta", "headline": "Bagikan Sekarang"}
         ]
     }
-    errors, warnings = check_carousel_semantics(plan)
+    result = check_carousel_semantics(plan)
+    errors = result["errors"]
     assert any("pengulangan" in e for e in errors)
+    assert not result["ok"]
 
 
 def test_semantic_qc_validates_role_order():
@@ -26,9 +28,47 @@ def test_semantic_qc_validates_role_order():
             {"role": "cta", "headline": "CTA"}
         ]
     }
-    errors, warnings = check_carousel_semantics(bad_plan)
+    result = check_carousel_semantics(bad_plan)
+    errors = result["errors"]
     assert any("cover" in e for e in errors)
     assert any("di antara 3 hingga 10" in e for e in errors)
+
+
+def test_semantic_qc_returns_structured_ok_result_and_nonblocking_warnings():
+    plan = {"slides": [
+        {"role": "cover", "headline": "Cover"},
+        {"role": "content", "headline": "Isi"},
+        {"role": "content", "headline": "Detail"},
+    ]}
+    result = check_carousel_semantics(plan)
+    assert result["ok"] is True
+    assert result["errors"] == []
+    assert result["warnings"]
+    assert result["checks"]["slide_count"] is True
+
+
+def test_semantic_qc_blocks_irrelevant_content_and_brand_violation():
+    plan = {"slides": [
+        {"role": "cover", "headline": "Klaim 99%"},
+        {"role": "content", "headline": "Riset"},
+        {"role": "cta", "headline": "Maintenance"},
+    ]}
+    result = check_carousel_semantics(plan, {"facts": {"stats": []}},
+                                      {"rules": {"forbidden_terms": ["MAINTENANCE"]}}, topic="Resep Rendang")
+    assert result["ok"] is False
+    assert result["checks"]["topic_relevance"] is False
+    assert result["checks"]["brand_consistency"] is False
+
+
+def test_semantic_qc_accepts_relevant_topic():
+    plan = {"concept": "Checklist maintenance website untuk keamanan digital", "slides": [
+        {"role": "cover", "headline": "Maintenance Website"},
+        {"role": "content", "headline": "Keamanan Digital"},
+        {"role": "cta", "headline": "Diskusikan"},
+    ]}
+    result = check_carousel_semantics(plan, topic="Maintenance Website")
+    assert result["ok"] is True
+    assert result["checks"]["topic_relevance"] is True
 
 
 def test_pillow_renderer_metadata_initialized(tmp_path, monkeypatch):

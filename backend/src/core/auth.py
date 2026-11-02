@@ -1,14 +1,13 @@
 """API Security & Authentication dependency for GTNIC Enterprise Agent.
 
-Provides optional/required API key authentication for mutating and admin endpoints.
-Can be configured via GTNIC_API_KEY environment variable. If empty or not set,
-in development mode it logs a warning and permits requests, but enforces protection
-when GTNIC_API_KEY is configured.
+Provides API-key authentication for protected endpoints. Production always requires
+Production always requires GTNIC_API_KEY; unauthenticated development mode must
+be explicitly opted into with ALLOW_UNAUTHENTICATED_DEV=true.
 """
 import os
 import hmac
 from typing import Optional
-from fastapi import Header, HTTPException, Security, status
+from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from src import config
 
@@ -25,7 +24,13 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)) -> b
     """
     configured = get_configured_api_key()
     if not configured:
-        # Development mode default: open if not explicitly configured
+        environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+        if environment in {"production", "prod"}:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                 detail="Autentikasi API belum dikonfigurasi untuk production.")
+        if os.getenv("ALLOW_UNAUTHENTICATED_DEV", "").lower() != "true":
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                 detail="Set GTNIC_API_KEY atau aktifkan mode development terbuka secara eksplisit.")
         return True
 
     if not api_key:

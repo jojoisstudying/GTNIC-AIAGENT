@@ -41,6 +41,7 @@ class VideoPipeline:
             scriptwriter = VideoScriptwriter(
                 llm_client=context.llm if context else None,
                 emit=lambda name, detail=None, **kw: self._emit(name, detail, **kw),
+                enterprise_context=context.enterprise_context if context else None,
             )
         self.scriptwriter = scriptwriter
         self.broll_fetcher = broll_fetcher or BRollFetcher()

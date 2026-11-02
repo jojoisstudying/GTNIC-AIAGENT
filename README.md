@@ -1,3 +1,6 @@
+# Optional local cutout dependency
+
+`rembg` is optional and isolated in `backend/requirements-image-processing.txt` because its security-patched release requires Pillow 12.1+, while MoviePy 2.2.1 requires Pillow <12. Install it only in a separate image-processing environment. The main backend and CI use `backend/requirements.txt`.
 # AI Social Media Automation Agent (Enterprise Edition) - GTNIC 2026
 
 Platform otomasi konten media sosial berbasis **Autonomous Multi-Agent Architecture** untuk industri dan enterprise di Indonesia dengan jaminan konten profesional ("No-AI-Slop").

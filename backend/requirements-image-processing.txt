@@ -1,0 +1,5 @@
+# Optional local background removal feature.
+# rembg 2.0.82 is security patched, but requires Pillow >=12.1 while MoviePy 2.2.1 requires Pillow <12.
+# Install this feature in an isolated environment, not alongside backend/requirements.txt.
+rembg[cpu]==2.0.82
+Pillow==12.3.0

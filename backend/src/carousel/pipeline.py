@@ -36,14 +36,40 @@ def load_brand(session=None) -> dict:
 
     # Enrich / override from EnterpriseProfile DB if available
     try:
-        from src.core.db import EnterpriseProfile, SessionLocal
+        from src.core.db import EnterpriseProfile, EnterpriseProfileVersion, SessionLocal
         owns_session = False
         if session is None:
             session = SessionLocal()
             owns_session = True
 
-        prof = session.scalar(select(EnterpriseProfile).order_by(desc(EnterpriseProfile.id)).limit(1))
+        prof = session.scalar(select(EnterpriseProfile).order_by(EnterpriseProfile.id.desc()).limit(1))
         if prof:
+            profile_snapshot = {
+                "id": prof.id,
+                "company_name": prof.company_name,
+                "industry": prof.industry,
+                "description": prof.description,
+                "products_services": json.loads(prof.products_services_json or "[]"),
+                "target_audience": json.loads(prof.target_audience_json or "{}"),
+                "business_goals": json.loads(prof.business_goals_json or "[]"),
+                "tone": prof.tone,
+                "content_pillars": json.loads(prof.content_pillars_json or "[]"),
+                "brand_rules": json.loads(prof.brand_rules_json or "[]"),
+                "contact_info": json.loads(prof.contact_info_json or "{}"),
+                "approval_workflow": json.loads(prof.approval_workflow_json or "{}"),
+                "operating_preferences": json.loads(prof.operating_preferences_json or "{}"),
+            }
+            profile_version = prof.updated_at.isoformat() if prof.updated_at else str(prof.id)
+            if not session.scalar(select(EnterpriseProfileVersion.id).where(
+                EnterpriseProfileVersion.profile_id == prof.id,
+                EnterpriseProfileVersion.version == profile_version,
+            )):
+                session.add(EnterpriseProfileVersion(
+                    profile_id=prof.id,
+                    version=profile_version,
+                    snapshot_json=json.dumps(profile_snapshot, ensure_ascii=False),
+                ))
+                session.commit()
             base_brand["company"] = prof.company_name or base_brand.get("company", "")
             base_brand["industry"] = prof.industry or base_brand.get("industry", "")
             base_brand["description"] = prof.description or base_brand.get("description", "")
@@ -62,6 +88,10 @@ def load_brand(session=None) -> dict:
             if prof.business_goals_json:
                 base_brand["business_goals"] = json.loads(prof.business_goals_json)
             base_brand["enterprise_profile_id"] = prof.id
+            base_brand["enterprise_profile_updated_at"] = profile_version
+            base_brand["contact_info"] = json.loads(prof.contact_info_json or "{}")
+            base_brand["approval_workflow"] = json.loads(prof.approval_workflow_json or "{}")
+            base_brand["operating_preferences"] = json.loads(prof.operating_preferences_json or "{}")
 
         if owns_session:
             session.close()
@@ -155,15 +185,27 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
 
         if include_design and out.get("plan"):
             # BUG-08 semantic QC gate: periksa konsistensi peran slide, headline, dan klaim statistik
-            semantic_qc_result = check_carousel_semantics(out["plan"])
+            try:
+                semantic_qc_result = check_carousel_semantics(out["plan"], research, brand, topic)
+            except Exception as exc:
+                semantic_qc_result = {
+                    "ok": False,
+                    "errors": [f"Semantic QC execution failed: {type(exc).__name__}: {exc}"],
+                    "warnings": [],
+                    "checks": {},
+                }
             if not semantic_qc_result.get("ok"):
-                ctx.emit("warn", "semantic_qc_issues", step="qc", status="warn",
+                ctx.emit("error", "semantic_qc_failed", step="qc", status="failed",
                          detail={"errors": semantic_qc_result.get("errors", []),
                                  "warnings": semantic_qc_result.get("warnings", [])})
-                # Jika ada error semantic kritis (misal role ordering atau duplikasi parah)
-                if semantic_qc_result.get("errors"):
-                    out["semantic_qc"] = semantic_qc_result
-                    print("Semantic QC mendeteksi isu kritis:", semantic_qc_result.get("errors"))
+                out["semantic_qc"] = semantic_qc_result
+                PLAN_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+                _export_run_version(ctx.run_id, "semantic_qc", plan_row.version, semantic_qc_result)
+                _close_run(session, ctx, "qc_failed", "; ".join(semantic_qc_result["errors"]))
+                return out
+            if semantic_qc_result.get("warnings"):
+                ctx.emit("warn", "semantic_qc_warnings", step="qc", status="warn",
+                         detail={"warnings": semantic_qc_result["warnings"]})
 
             design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
             design_result["semantic_qc"] = semantic_qc_result
@@ -171,9 +213,11 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             session.add(Design(run_id=ctx.run_id, plan_id=plan_row.id, version=design_version + 1,
                                ok=bool(design_result.get("ok")),
                                result_json=json.dumps(design_result, ensure_ascii=False),
-                               preview_path=design_result.get("preview")))
+                               preview_path=design_result.get("preview"),
+                               semantic_qc_json=json.dumps(semantic_qc_result, ensure_ascii=False)))
             session.commit()
             _export_run_version(ctx.run_id, "design", design_version + 1, design_result)
+            _export_run_version(ctx.run_id, "semantic_qc", plan_row.version, semantic_qc_result)
             (config.OUTPUT_DIR / "design_latest.json").write_text(
                 json.dumps(design_result, ensure_ascii=False, indent=2), encoding="utf-8")
             out["design"] = design_result
@@ -186,6 +230,8 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             status = "awaiting_approval"
         elif design_out.get("missing_poses"):
             status = "awaiting_assets"
+        elif design_out and design_out.get("ok"):
+            status = "awaiting_approval"
         else:
             status = "ok"
         run_row = _close_run(session, ctx, status)

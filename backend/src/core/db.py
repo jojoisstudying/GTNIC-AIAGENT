@@ -25,6 +25,8 @@ class Run(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     topic: Mapped[str] = mapped_column(Text, nullable=False)
     brand_id: Mapped[str | None] = mapped_column(String(128))
+    enterprise_profile_id: Mapped[int | None] = mapped_column(Integer)
+    enterprise_profile_version: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -70,6 +72,7 @@ class Design(Base):
     ok: Mapped[bool] = mapped_column(nullable=False, default=False)
     result_json: Mapped[str] = mapped_column(Text, nullable=False)
     preview_path: Mapped[str | None] = mapped_column(Text)
+    semantic_qc_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
@@ -119,6 +122,8 @@ class Publication(Base):
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     intent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     media_id: Mapped[str | None] = mapped_column(String(128))
     permalink: Mapped[str | None] = mapped_column(Text)
     caption: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -160,6 +165,17 @@ class EnterpriseProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+class EnterpriseProfileVersion(Base):
+    __tablename__ = "enterprise_profile_versions"
+    __table_args__ = (UniqueConstraint("profile_id", "version", name="uq_enterprise_profile_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("enterprise_profiles.id"), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
 class ContentStrategyItem(Base):
     __tablename__ = "content_strategy_items"
 
@@ -183,8 +199,10 @@ class ContentStrategyItem(Base):
 
 class PostAnalytics(Base):
     __tablename__ = "post_analytics"
+    __table_args__ = (UniqueConstraint("publication_id", name="uq_post_analytics_publication"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    publication_id: Mapped[int | None] = mapped_column(ForeignKey("publications.id"))
     run_id: Mapped[str | None] = mapped_column(String(32), index=True)
     strategy_item_id: Mapped[int | None] = mapped_column(Integer, index=True)
     media_id: Mapped[str | None] = mapped_column(String(128))
@@ -192,17 +210,45 @@ class PostAnalytics(Base):
     format: Mapped[str] = mapped_column(String(32), nullable=False)
     content_pillar: Mapped[str] = mapped_column(String(128), nullable=False)
     topic: Mapped[str] = mapped_column(Text, nullable=False)
-    reach: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    impressions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    likes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    shares: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    saves: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    profile_visits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reach: Mapped[int | None] = mapped_column(Integer)
+    impressions: Mapped[int | None] = mapped_column(Integer)
+    likes: Mapped[int | None] = mapped_column(Integer)
+    comments: Mapped[int | None] = mapped_column(Integer)
+    shares: Mapped[int | None] = mapped_column(Integer)
+    saves: Mapped[int | None] = mapped_column(Integer)
+    profile_visits: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="instagram_api")
     is_simulated: Mapped[bool] = mapped_column(nullable=False, default=False)
-    data_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    ingestion_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    data_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+def ingest_publication_metrics(session, publication: Publication, metrics: dict[str, Any], *,
+                               source: str, collected_at: datetime | None = None) -> PostAnalytics:
+    """Upsert platform metrics for a publication; absent measurements remain NULL."""
+    row = session.query(PostAnalytics).filter_by(publication_id=publication.id).one_or_none()
+    if row is None:
+        row = PostAnalytics(
+            publication_id=publication.id,
+            run_id=publication.run_id,
+            media_id=publication.media_id,
+            permalink=publication.permalink,
+            format=str(metrics.get("format") or "unknown"),
+            content_pillar=str(metrics.get("content_pillar") or "Belum diklasifikasikan"),
+            topic=str(metrics.get("topic") or ""),
+        )
+        session.add(row)
+    metric_fields = ("reach", "impressions", "likes", "comments", "shares", "saves", "profile_visits")
+    for field in metric_fields:
+        value = metrics.get(field)
+        setattr(row, field, int(value) if value is not None else None)
+    row.source = source
+    row.is_simulated = bool(metrics.get("is_simulated", False))
+    row.ingestion_status = "complete" if any(metrics.get(k) is not None for k in metric_fields) else "pending"
+    row.data_timestamp = collected_at or (utc_now() if row.ingestion_status == "complete" else None)
+    session.flush()
+    return row
 
 
 class AnalyticsInsight(Base):

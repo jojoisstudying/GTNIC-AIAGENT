@@ -8,23 +8,53 @@ Performs deterministic & heuristic validation across all slides:
 5. Sourced claims & fact verification against research sources.
 6. Caption & hashtag consistency with slides content.
 """
-from typing import Any, Dict, List, Tuple
+import re
+from typing import Any, Dict, List
 
 
-def check_carousel_semantics(plan: Dict[str, Any], research: Dict[str, Any] | None = None) -> Tuple[List[str], List[str]]:
+def check_carousel_semantics(plan: Dict[str, Any], research: Dict[str, Any] | None = None,
+                             brand: Dict[str, Any] | None = None, topic: str = "") -> Dict[str, Any]:
     """Evaluates carousel structure and semantic consistency.
     Returns:
-        (errors, warnings): errors block approval/publishing, warnings alert human reviewer.
+        A structured result. Blocking errors prevent approval/publishing; warnings are non-blocking.
     """
     errors: List[str] = []
     warnings: List[str] = []
 
     slides = plan.get("slides") or []
-    if not (3 <= len(slides) <= 10):
+    is_single_image = plan.get("format") == "single_image"
+    valid_slide_count = len(slides) == 1 if is_single_image else 3 <= len(slides) <= 10
+    if not valid_slide_count:
         errors.append(f"Jumlah slide carousel ({len(slides)}) harus di antara 3 hingga 10 slide.")
 
     if not slides:
-        return errors, warnings
+        return {"ok": not errors, "errors": errors, "warnings": warnings, "checks": {"slide_count": False}}
+
+    # Reject clearly unrelated content when enough meaningful topic anchors are available.
+    subject = " ".join((topic, str(plan.get("concept") or ""), str(plan.get("topic") or ""))).lower()
+    content = " ".join(
+        str(value) for slide in slides for value in (
+            slide.get("headline", ""), slide.get("subtext", ""),
+            " ".join(str(v) for v in (slide.get("slots") or {}).values()),
+        )
+    ).lower()
+    stopwords = {"yang", "dan", "atau", "untuk", "dari", "dengan", "dalam", "pada", "adalah", "cara", "tips", "apa", "itu", "the", "and", "for", "with", "how", "your"}
+    anchors = {word for word in re.findall(r"[a-z0-9]{3,}", subject) if word not in stopwords}
+    content_words = set(re.findall(r"[a-z0-9]{3,}", content))
+    relevance = bool(not anchors or anchors & content_words)
+    if not relevance:
+        errors.append("Konten carousel tidak menunjukkan relevansi yang terdeteksi terhadap topik yang diminta.")
+
+    # Only enforce explicit machine-readable brand restrictions; natural-language policy remains reviewable.
+    rules = (brand or {}).get("rules") or (brand or {}).get("brand_rules") or []
+    if isinstance(rules, dict):
+        forbidden = rules.get("forbidden_terms", []) + rules.get("avoid_terms", [])
+    else:
+        forbidden = (brand or {}).get("forbidden_terms", [])
+    forbidden = [str(term).strip() for term in forbidden if str(term).strip()]
+    violated_terms = [term for term in forbidden if term.casefold() in content]
+    if violated_terms:
+        errors.append("Konten melanggar istilah terlarang brand: " + ", ".join(violated_terms))
 
     # 1. Role ordering: first slide MUST be cover/single, last slide MUST be cta/single
     first_role = slides[0].get("role")
@@ -80,4 +110,17 @@ def check_carousel_semantics(plan: Dict[str, Any], research: Dict[str, Any] | No
     if len(hashtags) > 30:
         errors.append(f"Jumlah hashtag ({len(hashtags)}) melebihi batas 30.")
 
-    return errors, warnings
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "checks": {
+            "slide_count": valid_slide_count,
+            "topic_relevance": relevance,
+            "brand_consistency": not violated_terms,
+            "cover_role": first_role in ("cover", "single"),
+            "unique_headlines": not any("pengulangan" in error for error in errors),
+            "slide_content": not any("kosong" in error for error in errors),
+            "hashtag_limit": len(hashtags) <= 30,
+        },
+    }

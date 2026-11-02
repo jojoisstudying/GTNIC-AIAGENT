@@ -172,6 +172,7 @@ def publish(plan: dict, slide_paths: list[str], on_step=print, *, ctx=None,
         pub_row.status = "published"
         pub_row.media_id = media_id
         pub_row.permalink = info.get("permalink")
+        pub_row.published_at = datetime.now(timezone.utc)
         session.commit()
 
         if ctx and hasattr(ctx, "emit"):
@@ -307,6 +308,7 @@ def publish_reel(video_path: str, caption: str, on_step=print, *, share_to_feed:
         pub_row.status = "published"
         pub_row.media_id = media_id
         pub_row.permalink = info.get("permalink")
+        pub_row.published_at = datetime.now(timezone.utc)
         session.commit()
         if ctx and hasattr(ctx, "emit"):
             ctx.emit("info", "publication_published", step="publisher", status="published",

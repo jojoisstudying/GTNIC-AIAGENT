@@ -199,6 +199,7 @@ export default function App() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => window.localStorage.getItem('gtnic-api-key') || '');
 
   // Load Enterprise data on tab change
   useEffect(() => {
@@ -628,6 +629,13 @@ export default function App() {
         </div>
 
         {/* Brand Badge */}
+        <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); api.setApiKey(apiKeyInput); setStatusMessage({ type: 'success', text: apiKeyInput ? 'API key tersimpan di browser ini.' : 'API key dihapus dari browser ini.' }); }}>
+          <label htmlFor="api-key" className="sr-only">API Key</label>
+          <input id="api-key" type="password" autoComplete="off" value={apiKeyInput} onChange={(event) => setApiKeyInput(event.target.value)} placeholder="API key" className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200" />
+          <button type="submit" className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800">Simpan</button>
+        </form>
+
+        {/* Brand Badge */}
         {brand && (
           <div className="hidden md:flex items-center gap-2 text-xs bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-full text-gray-300">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -868,6 +876,9 @@ export default function App() {
         )}
 
         {/* TAB: ANALYTICS & CLOSED FEEDBACK LOOP (FEATURE-03) */}
+        {activeTab === 'analytics' && analyticsLoading && !analyticsData && (
+          <div className="text-sm text-gray-400" role="status">Memuat data analytics…</div>
+        )}
         {activeTab === 'analytics' && analyticsData && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-6">
             <div className="flex items-center justify-between border-b border-gray-800 pb-4">
@@ -876,14 +887,15 @@ export default function App() {
                   <BarChart3 className="w-5 h-5 text-emerald-400" /> Analisis Performa & Feedback Loop
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Menganalisis hasil postingan terdahulu untuk mengekstrak insight konkret yang otomatis menyesuaikan strategi kalender berikutnya.
+                  Ringkasan observasional berdasarkan data berlabel; sampel simulasi atau kecil bukan bukti sebab-akibat. Kalender hanya mengusulkan waktu, bukan menjalankan scheduler.
                 </p>
               </div>
               <div className="text-right">
                 <span className="px-2.5 py-1 bg-amber-950/80 border border-amber-800 text-amber-300 rounded text-[11px] font-semibold">
                   {analyticsData.summary.is_simulated ? 'Data Sumber: Simulasi Transparan GTNIC' : 'Data Sumber: Instagram API Nyata'}
                 </span>
-                <span className="block text-[10px] text-gray-500 mt-1">Sinkronisasi terakhir: {analyticsData.summary.last_sync ? fmtTime(analyticsData.summary.last_sync) : '-'}</span>
+                <span className="block text-[10px] text-gray-500 mt-1">Sinkronisasi terakhir: {analyticsData.summary.last_sync ? fmtTime(analyticsData.summary.last_sync) : 'Menunggu ingestion metrik'}</span>
+                {analyticsData.summary.pending_ingestion > 0 && <span className="block text-[10px] text-amber-400 mt-1">Menunggu ingestion: {analyticsData.summary.pending_ingestion} post</span>}
               </div>
             </div>
 
@@ -926,7 +938,8 @@ export default function App() {
                       <strong>Rekomendasi Tindakan:</strong> {ins.recommended_action}
                     </div>
                     <div className="text-[11px] text-gray-500 pt-1 flex items-center justify-between">
-                      <span>Diterapkan pada Kalender: {ins.applied_to_strategy ? 'Ya, terintegrasi di Slot Kalender' : 'Belum'}</span>
+                      <span>Diterapkan pada Kalender: {ins.applied_to_strategy ? 'Ya, terintegrasi pada item strategi' : 'Belum'}</span>
+                      <span>n={ins.data_points?.sample_size ?? 0}{ins.data_points?.is_simulated ? ' · simulasi' : ''}</span>
                       <span>{ins.created_at}</span>
                     </div>
                   </div>
@@ -954,17 +967,17 @@ export default function App() {
                   <tbody className="divide-y divide-gray-800/60 bg-gray-950/40">
                     {(analyticsData.posts || []).map((p) => (
                       <tr key={p.id} className="hover:bg-gray-900/60 transition">
-                        <td className="p-3 font-mono text-gray-400">{p.date}</td>
+                        <td className="p-3 font-mono text-gray-400">{p.date || 'Belum tersedia'}</td>
                         <td className="p-3">
                           <div className="font-semibold text-gray-200">{p.topic}</div>
-                          <span className="text-[11px] text-gray-500 uppercase">{p.format}</span>
+                          <span className="text-[11px] text-gray-500 uppercase">{p.format} · {p.is_simulated ? 'SIMULASI' : p.ingestion_status}</span>
                         </td>
                         <td className="p-3 text-gray-400">{p.pillar}</td>
-                        <td className="p-3 text-right font-mono text-emerald-400">{p.reach.toLocaleString('id-ID')}</td>
-                        <td className="p-3 text-right font-mono">{p.likes}</td>
-                        <td className="p-3 text-right font-mono">{p.comments}</td>
-                        <td className="p-3 text-right font-mono">{p.shares}</td>
-                        <td className="p-3 text-right font-mono text-purple-400 font-bold">{p.saves}</td>
+                        <td className="p-3 text-right font-mono text-emerald-400">{p.reach == null ? '—' : p.reach.toLocaleString('id-ID')}</td>
+                        <td className="p-3 text-right font-mono">{p.likes == null ? '—' : p.likes}</td>
+                        <td className="p-3 text-right font-mono">{p.comments == null ? '—' : p.comments}</td>
+                        <td className="p-3 text-right font-mono">{p.shares == null ? '—' : p.shares}</td>
+                        <td className="p-3 text-right font-mono text-purple-400 font-bold">{p.saves == null ? '—' : p.saves}</td>
                       </tr>
                     ))}
                   </tbody>

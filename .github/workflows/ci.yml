@@ -28,9 +28,23 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install playwright
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
           playwright install --with-deps chromium
+
+      - name: Verify requirements can resolve
+        run: python -m pip install --dry-run --ignore-installed -r backend/requirements.txt
+
+      - name: Backend import checks
+        env:
+          PYTHONPATH: backend
+        run: |
+          python -c "import src.api; import src.carousel.pipeline; import src.reels.pipeline; import src.carousel.tools.cloudflare_pose_generator"
+
+      - name: Backend lint
+        run: |
+          python -m pip install ruff
+          ruff check backend/src backend/tests
 
       - name: Run Pytest
         env:
@@ -54,7 +68,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Frontend Lint
         working-directory: frontend

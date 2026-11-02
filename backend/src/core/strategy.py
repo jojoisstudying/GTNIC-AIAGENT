@@ -1,6 +1,7 @@
 """Strategy generator, 7-day calendar planner, and feedback loop engine."""
 from datetime import datetime, timedelta, timezone
 import json
+import re
 from typing import Any, Dict, List, Optional
 from sqlalchemy import select, desc
 from sqlalchemy.orm import Session
@@ -70,6 +71,25 @@ SAMPLE_ENTERPRISE_PROFILE = {
     }
 }
 
+CALENDAR_STATES = {
+    "draft", "awaiting_approval", "approved", "approved_to_publish", "scheduled",
+    "producing", "generation_failed", "publishing", "published", "publication_failed", "rejected",
+}
+CALENDAR_TRANSITIONS = {
+    "draft": {"awaiting_approval", "approved", "rejected"},
+    "awaiting_approval": {"approved", "rejected", "draft"},
+    "approved": {"approved_to_publish", "scheduled", "publishing", "publication_failed", "rejected", "draft"},
+    "approved_to_publish": {"scheduled", "publishing", "rejected"},
+    "scheduled": {"approved_to_publish", "publishing", "rejected"},
+    "producing": {"awaiting_approval", "generation_failed", "rejected"},
+    "generation_failed": {"approved", "rejected", "draft"},
+    "publishing": {"published", "publication_failed"},
+    "publication_failed": {"approved_to_publish", "scheduled", "rejected"},
+    "publishing": {"published", "publication_failed"},
+    "published": set(),
+    "rejected": {"draft"},
+}
+
 
 def get_or_create_enterprise_profile(session: Session) -> EnterpriseProfile:
     """Mengambil profil enterprise aktif, atau menginisialisasi dengan data baku jika belum ada."""
@@ -135,6 +155,31 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
     latest_insight = session.scalars(
         select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))
     ).first()
+    analytics_rows = session.scalars(select(PostAnalytics).order_by(desc(PostAnalytics.id))).all()
+    analytics_context = {
+        "sample_size": len(analytics_rows),
+        "sources": sorted({row.source for row in analytics_rows}),
+        "simulated_records": sum(row.is_simulated for row in analytics_rows),
+        "metrics_available": {
+            name: sum(getattr(row, name) is not None for row in analytics_rows)
+            for name in ("reach", "impressions", "likes", "comments", "shares", "saves", "profile_visits")
+        },
+    }
+
+    # Use persisted research snapshots as sourced evidence, without implying absent facts are known.
+    research_evidence = []
+    latest_run = session.scalars(select(Run).order_by(desc(Run.created_at))).first()
+    if latest_run:
+        from src.core.db import ResearchSnapshot
+        snapshot = session.scalars(select(ResearchSnapshot).where(
+            ResearchSnapshot.run_id == latest_run.id, ResearchSnapshot.ok.is_(True)
+        ).order_by(desc(ResearchSnapshot.id))).first()
+        if snapshot:
+            try:
+                research_data = json.loads(snapshot.data_json)
+                research_evidence = (research_data.get("sources") or [])[:5]
+            except (TypeError, json.JSONDecodeError):
+                research_evidence = []
 
     today = datetime.now()
     llm_generated_items = []
@@ -149,15 +194,20 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 "dan masukan analitik terbaru. "
                 "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\"}]}"
             )
-            insight_context = f"Terbaru Insight Analitik: '{latest_insight.title}' ({latest_insight.observation})" if latest_insight else "Belum ada insight historis."
+            insight_context = f"Terbaru Insight Analitik: '{latest_insight.title}' ({latest_insight.observation}); evidence={latest_insight.data_points_json}" if latest_insight else "Belum ada insight historis."
+            insight_context += "\nKualitas dataset: " + json.dumps(analytics_context, ensure_ascii=False)
+            research_context = json.dumps(research_evidence, ensure_ascii=False) if research_evidence else "Tidak ada riset tersimpan; jangan membuat klaim seolah bersumber."
+            products_context = json.dumps(prods, ensure_ascii=False)
             user_prompt = (
                 f"Perusahaan: {profile.company_name}\n"
                 f"Industri: {profile.industry}\n"
                 f"Deskripsi: {profile.description}\n"
+                f"Produk dan layanan: {products_context}\n"
                 f"Target Audiens: {primary_audience}\n"
                 f"Tujuan Bisnis: {', '.join(goals)}\n"
                 f"Pilar Konten: {', '.join(pillars)}\n"
-                f"Feedback Analitik: {insight_context}\n\n"
+                f"Feedback Analitik: {insight_context}\n"
+                f"Bukti riset dan sumber: {research_context}\n\n"
                 "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel dan video Reels, "
                 "dengan objektif yang jelas dan rationale berbasis data bisnis."
             )
@@ -175,8 +225,20 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
             clean_json = re.sub(r"^```(?:json)?\s*", "", content.strip())
             clean_json = re.sub(r"\s*```$", "", clean_json)
             parsed = json.loads(clean_json)
-            if isinstance(parsed, dict) and "items" in parsed and len(parsed["items"]) == 7:
-                llm_generated_items = parsed["items"]
+            if isinstance(parsed, dict) and isinstance(parsed.get("items"), list) and len(parsed["items"]) == 7:
+                required = {"offset_days", "topic", "format", "pillar", "objective", "target_segment", "slot", "rationale"}
+                validated = []
+                for item in parsed["items"]:
+                    if not isinstance(item, dict) or not required.issubset(item):
+                        raise ValueError("Item strategi LLM kehilangan field wajib")
+                    if item["format"] not in {"carousel", "video"} or not 1 <= int(item["offset_days"]) <= 7:
+                        raise ValueError("Format atau offset_days strategi LLM tidak valid")
+                    if any(not str(item[field]).strip() for field in required - {"offset_days"}):
+                        raise ValueError("Field teks strategi LLM tidak boleh kosong")
+                    validated.append({**item, "offset_days": int(item["offset_days"])})
+                if {item["offset_days"] for item in validated} != set(range(1, 8)):
+                    raise ValueError("Offset strategi LLM harus mencakup tepat 1 sampai 7")
+                llm_generated_items = validated
         except Exception as e:
             print(f"[STRATEGY] Dynamic LLM strategy generation fallback to structured template: {e}")
 
@@ -258,6 +320,11 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
     for tmpl in plan_templates:
         p_date = (today + timedelta(days=tmpl["offset_days"])).strftime("%Y-%m-%d")
         rationale_text = tmpl["rationale"]
+        rationale_text += " [strategy_source=llm]" if llm_generated_items else " [strategy_source=deterministic_fallback]"
+        rationale_text += f" [enterprise_profile_id={profile.id}; goals={json.dumps(goals, ensure_ascii=False)}; audience={primary_audience}]"
+        rationale_text += f" [analytics_evidence={json.dumps(analytics_context, ensure_ascii=False)}]"
+        if research_evidence:
+            rationale_text += f" [research_sources={len(research_evidence)}]"
         insight_id = None
 
         # Jika ada insight analitik, perbarui item kedua/ketiga yang relevan untuk membuktikan closed feedback loop
@@ -355,6 +422,7 @@ def seed_demo_analytics_data(session: Session) -> List[PostAnalytics]:
             profile_visits=dp["profile_visits"],
             source="demo_seed_dataset (Simulated for GTNIC Presentation)",
             is_simulated=True,
+            ingestion_status="complete",
             data_timestamp=ts,
             permalink=dp["permalink"],
             media_id=f"demo_ig_{dp['days_ago']}"
@@ -362,27 +430,53 @@ def seed_demo_analytics_data(session: Session) -> List[PostAnalytics]:
         session.add(rec)
         records.append(rec)
 
-    # Buat 2 insight berbasis data analytics
-    insights = [
-        AnalyticsInsight(
-            title="Format Video & Konten Keamanan Menghasilkan Saves & Share Tertinggi (3.2x vs rata-rata)",
-            observation="Posting video berdurasi pendek pada pilar 'Keamanan Sistem' menghasilkan rasio simpanan (saves) 4.7% dan shares tertinggi (290), jauh melampaui rata-rata carousel edukasi statis.",
-            recommended_action="Tingkatkan alokasi format video Reels ke 2-3 kali seminggu untuk pilar Keamanan Siber dan Otomasi, serta jadwalkan pada slot sore (18:30 WIB).",
-            confidence="high",
-            data_points_json=json.dumps({"top_format": "video", "saves_rate": "4.7%", "avg_shares": 290}),
-            applied_to_strategy=True
-        ),
-        AnalyticsInsight(
-            title="Studi Kasus Konkret dengan Metrik Angka Mendorong Profile Visits & Pertanyaan Prospek",
-            observation="Carousel studi kasus yang menampilkan penghematan jam kerja (120 Jam/Bulan) menyumbang 138 profile visits dan 74 komentar pertanyaan teknis dari pengambil keputusan.",
-            recommended_action="Sertakan angka metrik terverifikasi di slide cover dan pertahankan format studi kasus mingguan di kalender konten.",
-            confidence="high",
-            data_points_json=json.dumps({"profile_visits": 138, "comments": 74, "retention_factor": "high"}),
-            applied_to_strategy=True
-        )
-    ]
+    # Derive conservative, explicitly labeled insights from the persisted demo sample.
+    by_format: dict[str, list[PostAnalytics]] = {}
+    for record in records:
+        by_format.setdefault(record.format, []).append(record)
+    avg_reach = {
+        fmt: sum(row.reach or 0 for row in rows) / len(rows)
+        for fmt, rows in by_format.items() if rows
+    }
+    avg_save_rate = {
+        fmt: sum((row.saves or 0) / row.reach for row in rows if row.reach) / max(1, sum(bool(row.reach) for row in rows))
+        for fmt, rows in by_format.items() if rows
+    }
+    source_ids = [record.id for record in records]
+    source_names = sorted({record.source for record in records})
+    simulated_only = all(record.is_simulated for record in records)
+    insights = []
+    if avg_reach:
+        top_reach = max(avg_reach, key=avg_reach.get)
+        insights.append(AnalyticsInsight(
+            title=f"Sampel demo: {top_reach} memiliki rata-rata reach tertinggi",
+            observation=(f"Dalam {len(records)} post sampel tersimpan, format {top_reach} memiliki rata-rata reach "
+                         f"{avg_reach[top_reach]:.0f}. Hasil ini bersifat deskriptif dan belum membuktikan sebab-akibat."),
+            recommended_action="Gunakan sebagai hipotesis untuk eksperimen berikutnya; jangan mengubah strategi permanen dari sampel kecil.",
+            confidence="preliminary",
+            data_points_json=json.dumps({"metric": "average_reach", "by_format": avg_reach,
+                "sample_size": len(records), "record_ids": source_ids, "sources": source_names,
+                "is_simulated": simulated_only}),
+        ))
+    if avg_save_rate:
+        top_saves = max(avg_save_rate, key=avg_save_rate.get)
+        insights.append(AnalyticsInsight(
+            title=f"Sampel demo: {top_saves} memiliki rasio saves/reach tertinggi",
+            observation=(f"Dalam sampel yang sama, rasio saves/reach rata-rata format {top_saves} adalah "
+                         f"{avg_save_rate[top_saves] * 100:.2f}%. Angka ini hanya ringkasan observasional."),
+            recommended_action="Uji format tersebut pada sampel tambahan dan bandingkan dalam periode yang sebanding.",
+            confidence="preliminary",
+            data_points_json=json.dumps({"metric": "average_saves_per_reach", "by_format": avg_save_rate,
+                "sample_size": len(records), "record_ids": source_ids, "sources": source_names,
+                "is_simulated": simulated_only}),
+        ))
     for ins in insights:
         session.add(ins)
 
     session.commit()
+    # Persist generated insight IDs before exposing the records or applying a strategy.
+    for ins in insights:
+        session.refresh(ins)
+    # Store the source metric IDs on insights; strategy items created after this point
+    # can safely reference the actual persisted insight identifier.
     return records

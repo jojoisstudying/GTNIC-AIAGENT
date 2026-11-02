@@ -93,6 +93,22 @@ def test_approved_cache_still_reused(gen_env):
     assert again["id"] == a["id"] and calls["n"] == 1
 
 
+def test_missing_rembg_environment_fails_with_actionable_message(monkeypatch):
+    import builtins
+
+    monkeypatch.setattr(config, "opt", lambda name, default="": default)
+    original_import = builtins.__import__
+
+    def without_rembg(name, *args, **kwargs):
+        if name == "rembg":
+            raise ImportError("rembg unavailable in the core environment")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_rembg)
+    with pytest.raises(RuntimeError, match="REMBG_PYTHON"):
+        cpg._remove_background(b"not-an-image")
+
+
 # ---------- API ----------
 
 @pytest.fixture()
