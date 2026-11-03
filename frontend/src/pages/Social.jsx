@@ -36,7 +36,7 @@ function ConnectionCard({ icon: Icon, title, status, ok, description, children }
   );
 }
 
-export default function Social({ brand, apiKeySet, onNavigateSettings }) {
+export default function Social({ brand, apiKeySet, apiKeyRequired = true, onNavigateSettings }) {
   const [ops, setOps] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -145,15 +145,17 @@ export default function Social({ brand, apiKeySet, onNavigateSettings }) {
             <ConnectionCard
               icon={Link2}
               title="Akses API dari browser"
-              status={apiKeySet ? 'Kunci tersimpan' : 'Kunci belum diatur'}
-              ok={apiKeySet}
+              status={apiKeySet || !apiKeyRequired ? 'Kunci tersimpan' : 'Kunci belum diatur'}
+              ok={apiKeySet || !apiKeyRequired}
               description={
-                apiKeySet
-                  ? 'Permintaan yang mengubah data (buat konten, setujui, posting) dikirim dengan kunci API dari browser ini.'
-                  : 'Tanpa kunci API, permintaan yang mengubah data akan ditolak server. Atur kuncinya di halaman Pengaturan.'
+                !apiKeyRequired
+                  ? 'Server lokal tidak mewajibkan kunci API, jadi permintaan mengubah data langsung diizinkan.'
+                  : apiKeySet
+                    ? 'Permintaan yang mengubah data (buat konten, setujui, posting) dikirim dengan kunci API dari browser ini.'
+                    : 'Tanpa kunci API, permintaan yang mengubah data akan ditolak server. Atur kuncinya di halaman Pengaturan.'
               }
             >
-              {!apiKeySet && (
+              {apiKeyRequired && !apiKeySet && (
                 <Button size="xs" variant="secondary" icon={Settings2} onClick={onNavigateSettings}>
                   Atur kunci API
                 </Button>

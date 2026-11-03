@@ -1,4 +1,9 @@
-const API_BASE = '';
+// Alamat backend bisa dipisah dari frontend lewat VITE_API_BASE_URL (mis. saat
+// frontend di-hosting statis dan API berjalan di server lain). Kosong = origin
+// yang sama, memakai proxy Vite saat `npm run dev` atau backend yang menyajikan
+// folder dist.
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim();
+const API_BASE = RAW_API_BASE.replace(/\/+$/, '');
 const API_KEY_STORAGE = 'gtnic-api-key';
 
 const protectedHeaders = (headers = {}) => {
@@ -8,109 +13,120 @@ const protectedHeaders = (headers = {}) => {
 
 const readError = async (res, fallback) => {
   const data = await res.json().catch(() => ({}));
-  return new Error(data.detail || data.error || fallback);
+  const detail = typeof data.detail === 'string'
+    ? data.detail
+    : Array.isArray(data.detail) && data.detail[0]?.msg
+      ? data.detail[0].msg
+      : data.error;
+  const message = detail || fallback;
+  return new Error(res.status ? `${message} (HTTP ${res.status})` : message);
+};
+
+// fetch yang membedakan "backend tidak bisa dihubungi" dari error HTTP biasa,
+// supaya toast tidak hanya menampilkan pesan generik.
+const request = async (path, options) => {
+  try {
+    return await fetch(`${API_BASE}${path}`, options);
+  } catch {
+    const target = API_BASE || window.location.origin;
+    throw new Error(
+      `Tidak bisa menghubungi backend di ${target}. Pastikan API berjalan `
+      + 'dan VITE_API_BASE_URL mengarah ke alamat yang benar.'
+    );
+  }
 };
 
 export const api = {
   getBrand: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/brand`);
-    if (!res.ok) throw new Error('Gagal mengambil data brand');
+    const res = await request('/api/v1/brand');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil data brand');
     return res.json();
   },
 
   getLayouts: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/layouts`);
-    if (!res.ok) throw new Error('Gagal mengambil daftar layout');
+    const res = await request('/api/v1/layouts');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil daftar layout');
     return res.json();
   },
 
   // status: 'all' | 'pending_review' | 'approved' | 'rejected' (alias 'pending' juga diterima backend)
   getAssets: async (status = 'all') => {
     const qs = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
-    const res = await fetch(`${API_BASE}/api/v1/assets${qs}`);
-    if (!res.ok) throw new Error('Gagal mengambil daftar asset');
+    const res = await request(`/api/v1/assets${qs}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil daftar asset');
     return res.json();
   },
 
   getRuns: async ({ limit = 30, offset = 0, status } = {}) => {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (status) params.set('status', status);
-    const res = await fetch(`${API_BASE}/api/v1/runs?${params}`);
-    if (!res.ok) throw new Error('Gagal mengambil riwayat run');
+    const res = await request(`/api/v1/runs?${params}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil riwayat run');
     return res.json();
   },
 
   generateCarousel: async (topic, fresh = true) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/generate`, {
+    const res = await request('/api/v1/runs/generate', {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ topic, fresh, include_design: true })
     });
-    if (!res.ok) throw new Error('Gagal memicu pembuatan carousel');
+    if (!res.ok) throw await readError(res, 'Gagal memicu pembuatan carousel');
     return res.json();
   },
 
   generateVideo: async (topic, targetDuration = 30, fresh = true) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/generate-video`, {
+    const res = await request('/api/v1/runs/generate-video', {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ topic, target_duration: targetDuration, fresh })
     });
-    if (!res.ok) throw new Error('Gagal memicu pembuatan video');
+    if (!res.ok) throw await readError(res, 'Gagal memicu pembuatan video');
     return res.json();
   },
 
   getRunStatus: async (runId) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/${runId}`);
-    if (!res.ok) throw new Error('Gagal mengambil status run');
+    const res = await request(`/api/v1/runs/${runId}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil status run');
     return res.json();
   },
 
   getRunEvents: async (runId) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/events`);
-    if (!res.ok) throw new Error('Gagal mengambil event log');
+    const res = await request(`/api/v1/runs/${runId}/events`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil event log');
     return res.json();
   },
 
   // options (khusus Reels): { caption, share_to_feed }
   publishToInstagram: async (runId, options) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/publish`, {
+    const res = await request(`/api/v1/runs/${runId}/publish`, {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       ...(options ? { body: JSON.stringify(options) } : {})
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || data.error || 'Gagal publikasi ke Instagram');
-    }
-    return data;
+    if (!res.ok) throw await readError(res, 'Gagal publikasi ke Instagram');
+    return res.json();
   },
 
   updateBrand: async (brandData) => {
-    const res = await fetch(`${API_BASE}/api/v1/brand`, {
+    const res = await request('/api/v1/brand', {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(brandData)
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal memperbarui konfigurasi brand');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal memperbarui konfigurasi brand');
     return res.json();
   },
 
   uploadLogo: async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${API_BASE}/api/v1/brand/logo`, {
+    const res = await request('/api/v1/brand/logo', {
       method: 'POST',
       headers: protectedHeaders(),
       body: formData
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal mengupload logo');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal mengupload logo');
     return res.json();
   },
 
@@ -118,86 +134,71 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('person_id', personId);
-    const res = await fetch(`${API_BASE}/api/v1/assets/upload`, {
+    const res = await request('/api/v1/assets/upload', {
       method: 'POST',
       headers: protectedHeaders(),
       body: formData
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal mengupload foto orang mentahan');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal mengupload foto orang mentahan');
     return res.json();
   },
 
   reviewAsset: async (assetId, status = 'approved') => {
-    const res = await fetch(`${API_BASE}/api/v1/assets/${assetId}/review?status=${status}`, {
+    const res = await request(`/api/v1/assets/${assetId}/review?status=${status}`, {
       method: 'POST',
       headers: protectedHeaders(),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || `Gagal ${status} aset`);
-    }
-    return data;
+    if (!res.ok) throw await readError(res, `Gagal ${status} aset`);
+    return res.json();
   },
 
   // Buat ulang pose yang ditolak. Kalau run terkait sedang menunggu, backend melanjutkannya otomatis.
   regeneratePose: async (assetId, { runId = null, prompt = '' } = {}) => {
-    const res = await fetch(`${API_BASE}/api/v1/assets/${assetId}/regenerate`, {
+    const res = await request(`/api/v1/assets/${assetId}/regenerate`, {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ run_id: runId, prompt })
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || 'Gagal membuat ulang pose');
-    }
-    return data;
+    if (!res.ok) throw await readError(res, 'Gagal membuat ulang pose');
+    return res.json();
   },
 
   resumeRun: async (runId) => {
-    const res = await fetch(`${API_BASE}/api/v1/runs/${runId}/resume`, {
+    const res = await request(`/api/v1/runs/${runId}/resume`, {
       method: 'POST',
       headers: protectedHeaders(),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || 'Gagal melanjutkan pipeline');
-    }
-    return data;
+    if (!res.ok) throw await readError(res, 'Gagal melanjutkan pipeline');
+    return res.json();
   },
 
   // FEATURE-01: Enterprise Profile & Onboarding
   getEnterpriseProfile: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/enterprise/profile`);
-    if (!res.ok) throw new Error('Gagal mengambil profil enterprise');
+    const res = await request('/api/v1/enterprise/profile');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil profil enterprise');
     return res.json();
   },
 
   updateEnterpriseProfile: async (profileData) => {
-    const res = await fetch(`${API_BASE}/api/v1/enterprise/profile`, {
+    const res = await request('/api/v1/enterprise/profile', {
       method: 'PUT',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(profileData)
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal memperbarui profil enterprise');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal memperbarui profil enterprise');
     return res.json();
   },
 
   // FEATURE-02: Strategy Calendar & Approvals
   getStrategyCalendar: async (regenerate = false) => {
-    const res = await fetch(`${API_BASE}/api/v1/strategy/calendar?regenerate=${regenerate}`);
-    if (!res.ok) throw new Error('Gagal mengambil kalender strategi');
+    const res = await request(`/api/v1/strategy/calendar?regenerate=${regenerate}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil kalender strategi');
     return res.json();
   },
 
   // Backend memisahkan regenerate ke POST; GET hanya membaca (dan membuat kalender bila kosong).
   regenerateStrategyCalendar: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/regenerate`, {
+    const res = await request('/api/v1/strategy/calendar/regenerate', {
       method: 'POST',
       headers: protectedHeaders(),
     });
@@ -206,54 +207,48 @@ export const api = {
   },
 
   updateStrategyItem: async (itemId, action) => {
-    const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}`, {
+    const res = await request(`/api/v1/strategy/calendar/${itemId}`, {
       method: 'PATCH',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(action)
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal memperbarui item strategi');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal memperbarui item strategi');
     return res.json();
   },
 
   generateFromStrategyItem: async (itemId) => {
-    const res = await fetch(`${API_BASE}/api/v1/strategy/calendar/${itemId}/generate`, {
+    const res = await request(`/api/v1/strategy/calendar/${itemId}/generate`, {
       method: 'POST',
       headers: protectedHeaders(),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Gagal menjalankan pipeline dari strategi');
-    }
+    if (!res.ok) throw await readError(res, 'Gagal menjalankan pipeline dari strategi');
     return res.json();
   },
 
   // FEATURE-03: Analytics & Feedback Loop
   getAnalyticsDashboard: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/analytics/dashboard`);
-    if (!res.ok) throw new Error('Gagal mengambil data analytics dashboard');
+    const res = await request('/api/v1/analytics/dashboard');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil data analytics dashboard');
     return res.json();
   },
 
   // Operations Center (notifikasi, audit, status operasional)
   getOpsStatus: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/ops/status`);
-    if (!res.ok) throw new Error('Gagal mengambil status operasional');
+    const res = await request('/api/v1/ops/status');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil status operasional');
     return res.json();
   },
 
   getNotifications: async ({ unreadOnly = false, limit = 20 } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (unreadOnly) params.set('unread_only', 'true');
-    const res = await fetch(`${API_BASE}/api/v1/notifications?${params}`);
-    if (!res.ok) throw new Error('Gagal mengambil notifikasi');
+    const res = await request(`/api/v1/notifications?${params}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil notifikasi');
     return res.json();
   },
 
   readNotification: async (id) => {
-    const res = await fetch(`${API_BASE}/api/v1/notifications/${id}/read`, {
+    const res = await request(`/api/v1/notifications/${id}/read`, {
       method: 'POST',
       headers: protectedHeaders(),
     });
@@ -262,7 +257,7 @@ export const api = {
   },
 
   readAllNotifications: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/notifications/read-all`, {
+    const res = await request('/api/v1/notifications/read-all', {
       method: 'POST',
       headers: protectedHeaders(),
     });
@@ -271,9 +266,25 @@ export const api = {
   },
 
   getHealth: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/health`);
-    if (!res.ok) throw new Error('Backend tidak merespons');
+    const res = await request('/api/v1/health');
+    if (!res.ok) throw await readError(res, 'Backend tidak merespons');
     return res.json();
+  },
+
+  // Server memberi tahu apakah header X-API-Key diwajibkan pada konfigurasi ini.
+  getAuthStatus: async () => {
+    const res = await request('/api/v1/auth/status');
+    if (!res.ok) throw await readError(res, 'Gagal membaca status autentikasi');
+    return res.json();
+  },
+
+  // Khusus mode lokal: backend mengirim kunci API-nya sendiri untuk UI di mesin
+  // yang sama (loopback + non-production), supaya tidak perlu tempel manual.
+  getDevApiKey: async () => {
+    const res = await request('/api/v1/auth/dev-key');
+    if (!res.ok) return '';
+    const data = await res.json().catch(() => ({}));
+    return data.api_key || '';
   },
 
   getApiKey: () => window.localStorage.getItem(API_KEY_STORAGE) || '',

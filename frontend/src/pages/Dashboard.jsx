@@ -62,7 +62,7 @@ function ChecklistItem({ done, label, description, actionLabel, onAction }) {
   );
 }
 
-export default function Dashboard({ brand, brandForm, apiKeySet, onNavigate, onOpenRun }) {
+export default function Dashboard({ brand, brandForm, apiKeySet, apiKeyRequired = true, onNavigate, onOpenRun }) {
   const [data, setData] = useState({
     runs: null,
     assets: null,
@@ -376,10 +376,14 @@ export default function Dashboard({ brand, brandForm, apiKeySet, onNavigate, onO
               },
               {
                 label: 'Kunci API',
-                value: apiKeySet ? 'Tersimpan di browser' : 'Belum diatur',
-                ok: apiKeySet,
-                hint: apiKeySet ? 'Aksi yang mengubah data diizinkan.' : 'Atur di halaman Pengaturan untuk bisa menyimpan & memposting.',
-                action: () => onNavigate('settings'),
+                value: !apiKeyRequired ? 'Tidak diperlukan' : apiKeySet ? 'Tersimpan di browser' : 'Belum diatur',
+                ok: apiKeySet || !apiKeyRequired,
+                hint: !apiKeyRequired
+                  ? 'Server lokal berjalan dalam mode development terbuka, jadi aksi mengubah data tetap diizinkan.'
+                  : apiKeySet
+                    ? 'Aksi yang mengubah data diizinkan.'
+                    : 'Atur di halaman Pengaturan untuk bisa menyimpan & memposting.',
+                action: apiKeyRequired && !apiKeySet ? () => onNavigate('settings') : undefined,
               },
               {
                 label: 'Instagram',

@@ -17,6 +17,35 @@ class BudgetExceeded(RuntimeError):
     """Raised when a configured run token/cost limit would be exceeded."""
 
 
+class ToolCallInvalid(RuntimeError):
+    """Model menghasilkan tool call yang ditolak provider (mis. nama tool salah)."""
+
+
+class ModelUnavailable(RuntimeError):
+    """Model yang dikonfigurasi tidak ada lagi di penyedia (mis. sudah deprecated)."""
+
+
+def _error_message(exc: BaseException) -> str:
+    """Ambil pesan error asli dari body API agar tidak terpotong jadi JSON mentah."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+        if isinstance(err, str):
+            return err
+    return str(exc)
+
+
+def _is_tool_call_error(exc: APIStatusError) -> bool:
+    """Groq membalas 400 + code tool_use_failed saat model salah menyebut nama tool."""
+    if getattr(exc, "status_code", 0) != 400:
+        return False
+    text = f"{_error_message(exc)} {exc}".lower()
+    return any(marker in text for marker in
+               ("tool_use_failed", "tool call validation failed", "not in request.tools"))
+
+
 def _is_network_retryable(exc: BaseException) -> bool:
     if isinstance(exc, RateLimitError):
         return False
@@ -79,6 +108,31 @@ class LLMClient:
                                       detail={"exhausted_model": current_model,
                                               "fallback_model": self.fallback_model or None})
                 continue
+            except ToolCallInvalid as exc:
+                last_exc = exc
+                if current_model == models_to_try[-1]:
+                    raise RuntimeError(
+                        f"{exc}. Ganti GROQ_MODEL ke model yang lebih patuh tool calling "
+                        f"(mis. openai/gpt-oss-120b) di backend/.env, lalu restart backend."
+                    ) from None
+                if self.emitter:
+                    self.emitter.emit("retry", "groq", step=step, status="fallback_model_tool_call",
+                                      detail={"failed_model": current_model,
+                                              "fallback_model": self.fallback_model or None,
+                                              "message": str(exc)[:250]})
+                continue
+            except ModelUnavailable as exc:
+                last_exc = exc
+                if current_model == models_to_try[-1]:
+                    raise RuntimeError(
+                        f"{exc} Periksa GROQ_MODEL dan FALLBACK_MODEL di backend/.env "
+                        f"(daftar model: https://console.groq.com/docs/models)."
+                    ) from None
+                if self.emitter:
+                    self.emitter.emit("retry", "groq", step=step, status="model_unavailable",
+                                      detail={"failed_model": current_model,
+                                              "fallback_model": self.fallback_model or None})
+                continue
             except Exception:
                 raise
 
@@ -97,6 +151,7 @@ class LLMClient:
 
         max_key_attempts = max(1, len(self.key_pool.keys))
         key_attempts = 0
+        tool_retries = 0
 
         while key_attempts < max_key_attempts:
             try:
@@ -145,6 +200,19 @@ class LLMClient:
             except APIStatusError as exc:
                 # APIStatusError yang tembus dari retryer (misalnya rate limit 429 atau upstream timeout dari Groq)
                 status_code = getattr(exc, "status_code", 0)
+                if _is_tool_call_error(exc):
+                    # Model kadang salah menyebut nama tool; satu kali ulang biasanya sudah benar.
+                    if tool_retries < 1:
+                        tool_retries += 1
+                        if self.emitter:
+                            self.emitter.emit("retry", "groq", step=step, status="tool_call_retry",
+                                              detail={"model": model, "attempt": tool_retries,
+                                                      "message": _error_message(exc)[:250]})
+                        continue
+                    raise ToolCallInvalid(
+                        f"Model '{model}' mengirim tool call yang ditolak Groq: {_error_message(exc)[:200]}")
+                if status_code == 404 and "does not exist" in _error_message(exc).lower():
+                    raise ModelUnavailable(f"Model '{model}' tidak tersedia di Groq.")
                 if status_code in (429, 500, 502, 503, 520, 524):
                     self.key_pool.cooldown(api_key, duration=self.key_pool.cooldown_seconds or 5.0)
                     key_attempts += 1
@@ -160,7 +228,7 @@ class LLMClient:
                                               "status_code": status_code,
                                               "message": str(exc)[:300],
                                               "key_id": KeyPool.mask_key(api_key)})
-                raise RuntimeError(f"LLM request failed (APIStatusError: {status_code} - {str(exc)[:150]})") from None
+                raise RuntimeError(f"LLM request failed (APIStatusError: {status_code} - {_error_message(exc)[:200]})") from None
             except BudgetExceeded:
                 raise
             except Exception as exc:

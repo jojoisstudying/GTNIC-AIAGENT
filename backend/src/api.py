@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, desc, func
 
@@ -106,6 +107,11 @@ app.mount("/static/output", StaticFiles(directory=str(config.OUTPUT_DIR)), name=
 app.mount("/static/gallery", StaticFiles(directory=str(config.ROOT / "gallery")), name="gallery")
 app.mount("/static/assets", StaticFiles(directory=str(config.ROOT / "assets")), name="brand_assets")
 app.mount("/static/data", StaticFiles(directory=str(config.ROOT / "data")), name="data_assets")
+
+# Hasil `npm run build` di frontend/. Kalau ada, backend menyajikan UI di "/"
+# supaya API dan halaman web satu origin (tanpa proxy Vite / konfigurasi CORS).
+FRONTEND_DIST = config.ROOT.parent / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 
 
 # --- Request & Response Models ---
@@ -416,6 +422,9 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
 
 @app.get("/")
 def health_check():
+    """Info API, atau UI kalau frontend sudah di-build ke frontend/dist."""
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
     return {
         "status": "online",
         "service": "GTNIC Social Media AI Agent API",
@@ -1599,6 +1608,34 @@ def health():
     return {"status": "ok", "scheduler_enabled": config.opt("SCHEDULER_ENABLED", "false").lower() == "true"}
 
 
+@app.get("/api/v1/auth/status")
+def auth_status():
+    """Apakah endpoint terproteksi membutuhkan header X-API-Key pada server ini.
+
+    Frontend memakai ini supaya tidak memperingatkan "kunci API belum diatur"
+    ketika server berjalan dalam mode development terbuka.
+    """
+    return {"key_required": bool(auth.get_configured_api_key())}
+
+
+@app.get("/api/v1/auth/dev-key")
+def auth_dev_key(request: Request):
+    """Bootstrap kunci API untuk UI yang dibuka dari mesin yang sama.
+
+    Hanya aktif di luar production dan hanya untuk permintaan loopback, supaya
+    demo lokal tidak perlu menempel kunci manual di halaman Pengaturan. Di
+    production (atau dari host lain) endpoint ini selalu 404.
+    """
+    environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+    client_host = (request.client.host if request.client else "") or ""
+    if environment in {"production", "prod"} or client_host not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(status_code=404, detail="Tidak tersedia")
+    configured = auth.get_configured_api_key()
+    if not configured:
+        raise HTTPException(status_code=404, detail="Kunci API belum dikonfigurasi")
+    return {"api_key": configured}
+
+
 @app.get("/api/v1/analytics/dashboard")
 def get_analytics_dashboard_endpoint(include_simulated: bool = False):
     """Mengambil data performa postingan dan rekomendasi insight berbasis metrik nyata/simulasi transparan."""
@@ -1662,3 +1699,13 @@ def get_analytics_dashboard_endpoint(include_simulated: bool = False):
                 for ins in insights
             ]
         }
+
+
+# --- Frontend statis (opsional, satu origin) ---
+# Kalau `frontend/dist` hasil `npm run build` tersedia, backend ikut menyajikan UI
+# di "/" sehingga API dan halaman web berada di origin yang sama: tidak perlu
+# proxy Vite atau konfigurasi CORS di deployment.
+if FRONTEND_INDEX.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+    log.info("Serving frontend build from %s at /", FRONTEND_DIST)
+

@@ -74,9 +74,11 @@ export default function Generator({
   onRegenerate,
   onResume,
   apiKeySet,
+  apiKeyRequired = true,
   onOpenSettings,
 }) {
   const isVideoRun = (runData?.format ?? formatType) === 'video';
+  const keyMissing = apiKeyRequired && !apiKeySet;
   const slides = runData?.design?.slides || [];
   const video = runData?.video || null;
   const runFailed = runData?.status === 'failed';
@@ -250,7 +252,7 @@ export default function Generator({
             )}
           </div>
 
-          {!apiKeySet && (
+          {keyMissing && (
             <Alert tone="warning" title="Kunci API belum diatur" action={
               <Button size="xs" variant="secondary" icon={KeyRound} onClick={onOpenSettings}>
                 Buka pengaturan

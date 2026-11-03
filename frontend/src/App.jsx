@@ -105,6 +105,7 @@ export default function App() {
   // ---------- Akses & status ----------
   const [apiKeyInput, setApiKeyInput] = useState(() => api.getApiKey());
   const [apiKeySet, setApiKeySet] = useState(() => Boolean(api.getApiKey()));
+  const [keyRequired, setKeyRequired] = useState(true);
   const [online, setOnline] = useState(true);
 
   // ---------- Notifikasi ----------
@@ -181,6 +182,22 @@ export default function App() {
       .catch((err) => notify('error', `Gagal memuat template layout: ${err.message}`))
       .finally(() => setLayoutsLoading(false));
     api.getHealth().then(() => setOnline(true)).catch(() => setOnline(false));
+    api.getAuthStatus()
+      .then(async (res) => {
+        const required = Boolean(res.key_required);
+        setKeyRequired(required);
+        // Mode lokal: ambil kunci langsung dari backend supaya pengguna tidak
+        // perlu menempel X-API-Key manual di halaman Pengaturan.
+        if (required && !api.getApiKey()) {
+          const devKey = await api.getDevApiKey().catch(() => '');
+          if (devKey) {
+            api.setApiKey(devKey);
+            setApiKeyInput(devKey);
+            setApiKeySet(true);
+          }
+        }
+      })
+      .catch(() => { /* biarkan default: anggap kunci diperlukan */ });
   }, [fetchBrand, notify]);
 
   useEffect(() => {
@@ -653,6 +670,7 @@ export default function App() {
             brand={brand}
             brandForm={brandForm}
             apiKeySet={apiKeySet}
+            apiKeyRequired={keyRequired}
             onNavigate={navigate}
             onOpenRun={openRun}
           />
@@ -692,6 +710,7 @@ export default function App() {
             onRegenerate={handleRegenerate}
             onResume={handleResumeRun}
             apiKeySet={apiKeySet}
+            apiKeyRequired={keyRequired}
             onOpenSettings={() => navigate('settings')}
           />
         );
@@ -749,6 +768,7 @@ export default function App() {
           <Social
             brand={brand}
             apiKeySet={apiKeySet}
+            apiKeyRequired={keyRequired}
             onNavigateSettings={() => navigate('settings')}
           />
         );
@@ -786,6 +806,7 @@ export default function App() {
             apiKeyInput={apiKeyInput}
             setApiKeyInput={setApiKeyInput}
             apiKeySet={apiKeySet}
+            apiKeyRequired={keyRequired}
             onSaveApiKey={saveApiKey}
             onClearApiKey={clearApiKey}
             online={online}
@@ -843,6 +864,7 @@ export default function App() {
           onMenu={() => setSidebarOpen(true)}
           brandName={brandForm.company || brand?.company}
           apiKeySet={apiKeySet}
+          apiKeyRequired={keyRequired}
           onOpenSettings={() => navigate('settings')}
         />
 

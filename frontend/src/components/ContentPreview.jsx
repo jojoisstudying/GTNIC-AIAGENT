@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Alert, Badge, Button, Card, EmptyState, Modal, ProgressBar, StatusBadge } from './ui';
 import { cn } from '../lib/utils';
-import { fmtMoney, publicationMeta, runStatusMeta } from '../lib/format';
+import { fmtMoney, publicationMeta, runErrorHint, runStatusMeta } from '../lib/format';
 
 function PoseReview({ items, approvingAssetId, regeneratingId, resumingRun, pendingLeft, onApprove, onRegenerate, onResume }) {
   return (
@@ -230,6 +230,9 @@ export default function ContentPreview({
             <p className="break-words">
               {runData?.error || video?.issues?.join('; ') || 'Terjadi kesalahan. Lihat panel proses AI untuk detailnya.'}
             </p>
+            {runErrorHint(runData?.error) && (
+              <p className="mt-1.5 break-words text-xs font-medium">{runErrorHint(runData?.error)}</p>
+            )}
           </Alert>
         )}
 

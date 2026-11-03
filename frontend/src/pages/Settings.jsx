@@ -15,7 +15,7 @@ import { Alert, Badge, Button, Card, CardHeader, Field, Input, PageHeader, Spinn
 import { fmtTime } from '../lib/format';
 import { cn } from '../lib/utils';
 
-export default function Settings({ apiKeyInput, setApiKeyInput, apiKeySet, onSaveApiKey, onClearApiKey, online }) {
+export default function Settings({ apiKeyInput, setApiKeyInput, apiKeySet, apiKeyRequired = true, onSaveApiKey, onClearApiKey, online }) {
   const [health, setHealth] = useState(null);
   const [ops, setOps] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -58,7 +58,9 @@ export default function Settings({ apiKeyInput, setApiKeyInput, apiKeySet, onSav
         <Card>
           <CardHeader
             title="Kunci API"
-            description="Dibutuhkan agar aplikasi boleh membuat konten, menyetujui, dan memposting."
+            description={apiKeyRequired
+              ? 'Dibutuhkan agar aplikasi boleh membuat konten, menyetujui, dan memposting.'
+              : 'Server lokal tidak mewajibkan kunci ini. Isi hanya bila backend dijalankan dengan GTNIC_API_KEY.'}
             icon={KeyRound}
             actions={<Badge tone={apiKeySet ? 'success' : 'warning'}>{apiKeySet ? 'Tersimpan' : 'Belum diatur'}</Badge>}
           />

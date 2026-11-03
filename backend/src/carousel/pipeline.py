@@ -18,6 +18,25 @@ RESEARCH_FILE = config.OUTPUT_DIR / "research_latest.json"
 PLAN_FILE = config.OUTPUT_DIR / "plan_latest.json"
 
 
+def _pose_generation_available(brand: dict | None = None) -> bool:
+    """True hanya kalau pose bisa benar-benar dibuat sekarang.
+
+    Butuh: fitur aktif, person_id terisi, dan foto referensi talent tersedia.
+    Tanpa foto referensi, generate_pose selalu gagal, jadi menahan run di
+    status `awaiting_assets` hanya membuat operator menunggu tanpa jalan keluar.
+    """
+    enabled = config.opt("CLOUDFLARE_POSE_GENERATION", "true").lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return False
+    person_id = config.opt("CLOUDFLARE_POSE_PERSON_ID") or ((brand or {}).get("pose_generation") or {}).get("person_id")
+    if not person_id:
+        return False
+    person_dir = config.ROOT / "data" / "people" / str(person_id)
+    if not person_dir.exists():
+        return False
+    return any(person_dir.glob("reference.*"))
+
+
 def _export_run_version(run_id: str, name: str, version: int, payload: dict) -> Path:
     """Write an immutable per-run JSON export while preserving the compatibility latest copy."""
     run_dir = config.OUTPUT_DIR / "runs" / run_id
@@ -227,11 +246,14 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             ctx.emit("info", "design_saved", step="designer", status="ok" if design_result.get("ok") else "failed",
                      detail={"version": design_version + 1, "ok": bool(design_result.get("ok"))})
 
-        # FIX: samakan dengan _execute_resume_task di api.py (pose belum ada -> awaiting_assets)
+        # FIX: samakan dengan _execute_resume_task di api.py (pose belum ada -> awaiting_assets),
+        # tetapi jangan menahan run kalau pose memang tidak bisa dibuat (mis. foto referensi kosong).
         design_out = out.get("design") or {}
-        if design_out.get("pending_review"):
+        pending_review = design_out.get("pending_review") or []
+        missing_poses = design_out.get("missing_poses") or []
+        if pending_review:
             status = "awaiting_approval"
-        elif design_out.get("missing_poses"):
+        elif missing_poses and _pose_generation_available(brand):
             status = "awaiting_assets"
         elif design_out and design_out.get("ok"):
             status = "awaiting_approval"

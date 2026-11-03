@@ -2,8 +2,9 @@ import { KeyRound, Menu } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import { cn } from '../lib/utils';
 
-export default function Topbar({ meta, onMenu, brandName, apiKeySet, onOpenSettings }) {
+export default function Topbar({ meta, onMenu, brandName, apiKeySet, apiKeyRequired = true, onOpenSettings }) {
   const initial = (brandName || 'GT').trim().slice(0, 2).toUpperCase();
+  const keyOk = apiKeySet || !apiKeyRequired;
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
@@ -30,14 +31,14 @@ export default function Topbar({ meta, onMenu, brandName, apiKeySet, onOpenSetti
             onClick={onOpenSettings}
             className={cn(
               'hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition sm:inline-flex',
-              apiKeySet
+              keyOk
                 ? 'border-success-100 bg-success-50 text-success-700 hover:bg-success-100/70'
                 : 'border-warning-100 bg-warning-50 text-warning-700 hover:bg-warning-100/70'
             )}
-            title={apiKeySet ? 'Kunci API tersimpan di browser ini' : 'Kunci API belum diatur — aksi yang mengubah data akan gagal'}
+            title={keyOk ? 'Aksi yang mengubah data diizinkan server' : 'Kunci API belum diatur — aksi yang mengubah data akan gagal'}
           >
             <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-            {apiKeySet ? 'API tersambung' : 'API belum diatur'}
+            {keyOk ? 'API tersambung' : 'API belum diatur'}
           </button>
 
           <NotificationBell />

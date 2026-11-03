@@ -166,3 +166,39 @@ export const truncate = (text, max = 120) => {
   const value = String(text ?? '');
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 };
+
+/**
+ * Terjemahkan error backend yang sering muncul menjadi langkah perbaikan
+ * yang bisa langsung dijalankan operator. Mengembalikan null bila tidak ada
+ * padanan yang diketahui (biarkan pesan asli tampil apa adanya).
+ */
+export const runErrorHint = (error) => {
+  const text = String(error ?? '');
+  if (!text) return null;
+  if (/cooling down|rate limit exceeded|429/i.test(text)) {
+    return 'Kuota penyedia AI sedang cooldown karena batas laju (rate limit). Tunggu sekitar 1 menit lalu jalankan lagi.';
+  }
+  if (/tool call|tool_use_failed/i.test(text)) {
+    return 'Model AI beberapa kali mengirim tool call yang tidak valid. Coba jalankan lagi; kalau berulang, set GROQ_MODEL=openai/gpt-oss-120b di backend/.env lalu restart backend.';
+  }
+  if (/Chromium|playwright install/i.test(text)) {
+    return 'Browser render belum terpasang di server. Jalankan: .\\.venv\\Scripts\\python.exe -m playwright install chromium di folder backend.';
+  }
+  if (/No API keys configured for provider '?groq'?/i.test(text) || /ProviderExhausted.*groq/i.test(text)) {
+    return 'Kunci Groq belum ada. Isi GROQ_API_KEY di backend/.env lalu restart backend. Kunci gratis: https://console.groq.com/keys';
+  }
+  if (/No API keys configured for provider '?tavily'?/i.test(text)) {
+    return 'Kunci Tavily belum ada. Isi TAVILY_API_KEY di backend/.env lalu restart backend. Kunci gratis: https://app.tavily.com';
+  }
+  if (/No API keys configured/i.test(text)) {
+    return 'Kunci penyedia AI belum diisi di backend/.env. Isi GROQ_API_KEY (dan TAVILY_API_KEY untuk riset) lalu restart backend.';
+  }
+  if (/research_latest\.json belum ada/i.test(text)) {
+    return 'Belum ada cache riset. Aktifkan "Riset web terbaru" di form generator, atau jalankan sekali dengan riset baru.';
+  }
+  if (/IG_TOKEN|Instagram/i.test(text)) {
+    return 'Kredensial Instagram belum diatur di backend/.env (IG_TOKEN, IG_USER_ID).';
+  }
+  return null;
+};
+

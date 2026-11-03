@@ -7,7 +7,11 @@ client = TestClient(app)
 def test_health_check():
     res = client.get("/")
     assert res.status_code == 200
-    assert res.json()["status"] == "online"
+    if res.headers.get("content-type", "").startswith("text/html"):
+        # frontend/dist tersedia: root menyajikan UI, status API dicek lewat endpoint health.
+        assert client.get("/api/v1/health").json()["status"] == "ok"
+    else:
+        assert res.json()["status"] == "online"
 
 def test_list_layouts():
     res = client.get("/api/v1/layouts")
