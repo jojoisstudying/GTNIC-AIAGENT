@@ -175,6 +175,12 @@ export const truncate = (text, max = 120) => {
 export const runErrorHint = (error) => {
   const text = String(error ?? '');
   if (!text) return null;
+  if (/too large for model|tokens per minute|TPM/i.test(text)) {
+    return 'Permintaan AI melebihi batas token per menit (TPM) akun Groq. Prompt sudah diringkas otomatis; tunggu ±1 menit lalu jalankan lagi. Bila sering terjadi, turunkan LLM_MAX_COMPLETION_TOKENS atau isi LLM_TPM_LIMIT di backend/.env.';
+  }
+  if (/RequestTooLarge/i.test(text)) {
+    return 'Permintaan AI melebihi batas token penyedia. Tunggu ±1 menit lalu jalankan lagi; prompt akan diringkas lebih agresif.';
+  }
   if (/cooling down|rate limit exceeded|429/i.test(text)) {
     return 'Kuota penyedia AI sedang cooldown karena batas laju (rate limit). Tunggu sekitar 1 menit lalu jalankan lagi.';
   }

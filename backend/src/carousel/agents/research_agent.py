@@ -3,6 +3,7 @@ import json
 import re
 from src import config
 from src.carousel.agents import facts as facts_mod
+from src.carousel.sources import extract_urls, normalize_url
 from src.core.llm import LLMClient
 from src.carousel.tools.search import search_social_trends
 from src.tools.instagram import get_my_recent_performance
@@ -129,6 +130,37 @@ def _guard(client, model, data: dict, gathered: list) -> tuple[dict, list[str]]:
     return data, warnings
 
 
+def verify_sources(data: dict, gathered: list) -> tuple[dict, list[str]]:
+    """Pastikan ``sources`` berasal dari hasil pencarian, bukan karangan model.
+
+    Rujukan yang tidak pernah muncul di hasil tool tidak bisa ditelusuri balik, jadi
+    tidak boleh dipakai sebagai sumber. Filter hanya diterapkan kalau masih ada sisa
+    URL terverifikasi: kalau semuanya tersaring, daftar asli dipertahankan dan diberi
+    peringatan — lebih baik operator melihat peringatan daripada kehilangan riset.
+    """
+    raw = [u for u in (data.get("sources") or []) if isinstance(u, str) and u.strip()]
+    if not raw:
+        return data, []
+    blob = json.dumps(gathered, ensure_ascii=False)
+    blob_keys = {normalize_url(u) for u in extract_urls(gathered)}
+    verified, dropped = [], []
+    for url in raw:
+        key = normalize_url(url)
+        if key and (key in blob_keys or url in blob):
+            if url not in verified:
+                verified.append(url)
+        else:
+            dropped.append(url)
+    if not dropped:
+        data["sources"] = verified
+        return data, []
+    if not verified:
+        return data, [f"Semua sumber tidak ditemukan di hasil pencarian (kemungkinan karangan): {dropped}. "
+                      "Riset dipertahankan apa adanya; verifikasi manual disarankan."]
+    data["sources"] = verified
+    return data, [f"Sumber tanpa jejak di hasil pencarian dibuang: {dropped}"]
+
+
 def normalize_candidates(data: dict, gathered: list) -> tuple[dict, list[str]]:
     """Validasi topic_candidates (spek 4.4): URL harus ada di hasil tool, skor 0-1, field wajib terisi."""
     blob = json.dumps(gathered, ensure_ascii=False)
@@ -229,6 +261,10 @@ def run(topic: str, industry: str, client=None, max_steps: int = 8, on_step=prin
     warnings = []
     if data is not None:
         data, warnings = _guard(client, model, data, gathered)
+        # Sumber harus punya jejak di hasil pencarian; yang tidak ada tidak boleh dipakai
+        # sebagai rujukan valid (validator planner mempercayai daftar ini).
+        data, source_warnings = verify_sources(data, gathered)
+        warnings = list(warnings) + source_warnings
         data, extra = normalize_candidates(data, gathered)
         warnings = list(warnings) + extra
         data.pop("facts", None)        # model tidak boleh menyuntikkan fakta; facts dibangun KODE (lihat facts.py)

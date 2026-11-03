@@ -1,4 +1,5 @@
 """Groq chat wrapper with transient retries, key rotation, usage reporting, and run budgets."""
+import re
 import time
 from typing import Any
 
@@ -8,6 +9,7 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_rand
 import requests
 
 from src import config
+from src.core import tokens as token_budget
 from src.core.events import EventEmitter
 from src.core.keys import KeyPool, ProviderExhausted
 from src.core.pricing import calculate_llm_cost
@@ -15,6 +17,10 @@ from src.core.pricing import calculate_llm_cost
 
 class BudgetExceeded(RuntimeError):
     """Raised when a configured run token/cost limit would be exceeded."""
+
+
+class RequestTooLarge(RuntimeError):
+    """Permintaan melebihi batas token per menit (TPM) penyedia; tidak diulang otomatis."""
 
 
 class ToolCallInvalid(RuntimeError):
@@ -59,6 +65,56 @@ def _is_network_retryable(exc: BaseException) -> bool:
     return False
 
 
+_TPM_PATTERN = re.compile(r"limit\s*(\d[\d,]*)\D{0,80}?requested\s*(\d[\d,]*)", re.IGNORECASE | re.DOTALL)
+
+
+def _is_request_too_large(exc: BaseException) -> bool:
+    """True untuk 413 / error TPM Groq ("Request too large ... Limit 8000, Requested 10496").
+
+    Groq kadang membalasnya sebagai 413, kadang sebagai RateLimitError (429) dengan
+    teks yang sama. Keduanya bukan error sementara: mengulang request yang sama
+    hanya membakar kuota, jadi harus ditangani sekali dan dilaporkan jelas.
+    """
+    status = getattr(exc, "status_code", 0) or 0
+    text = f"{_error_message(exc)} {exc}".lower()
+    markers = ("request too large", "tokens per minute", " tpm", "reduce your message size",
+               "reduce the length of the messages")
+    if status == 413 and any(m in text for m in markers):
+        return True
+    return status in (413, 429) and any(m in text for m in ("request too large", "tokens per minute"))
+
+
+def _tpm_numbers(exc: BaseException) -> tuple[int | None, int | None]:
+    """Ambil (limit, requested) dari body error TPM bila penyedia menyebutkannya."""
+    match = _TPM_PATTERN.search(_error_message(exc))
+    if not match:
+        return None, None
+    try:
+        return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
+    except ValueError:
+        return None, None
+
+
+def too_large_message(model: str, *, limit: int | None, requested: int | None) -> str:
+    """Pesan 413 yang bisa ditindaklanjuti operator (bahasa Indonesia)."""
+    detail = ""
+    if limit and requested:
+        detail = (f"Batas {limit:,} token/menit (TPM), permintaan {requested:,} token "
+                  f"(kelebihan {requested - limit:,}).").replace(",", ".")
+    elif limit:
+        detail = (f"Batas {limit:,} token/menit (TPM).").replace(",", ".")
+    elif requested:
+        detail = (f"Permintaan {requested:,} token melebihi batas TPM akun.").replace(",", ".")
+    hint = (
+        "Prompt sudah diringkas otomatis, tetapi masih melebihi kuota menit. "
+        "Langkah yang bisa dilakukan: (1) tunggu ±1 menit lalu jalankan ulang — kuota TPM "
+        "dihitung per menit; (2) turunkan LLM_MAX_COMPLETION_TOKENS di backend/.env; "
+        "(3) isi LLM_TPM_LIMIT sesuai batas akun Groq supaya prompt dipangkas lebih agresif; "
+        "(4) pakai GROQ_API_KEYS dengan beberapa kunci untuk menyebar beban."
+    )
+    return f"Permintaan ke model '{model}' terlalu besar untuk batas token penyedia. {detail} {hint}".strip()
+
+
 class LLMClient:
     """Expose a concise chat API while preserving provider response objects and key pool rotation."""
 
@@ -79,6 +135,24 @@ class LLMClient:
         self.tokens_out = 0
         self.cost_usd = 0.0
         self._clients: dict[str, Groq] = {}
+        self._limiters: dict[str, token_budget.TokenRateLimiter] = {}
+        self.tpm_limit_override: int | None = None     # dipakai test / kalibrasi manual
+        # Limiter dibagi antar-LLMClient dalam satu proses: TPM dihitung per akun,
+        # bukan per run, jadi run paralel tidak boleh mengira punya kuota penuh semua.
+        self.share_tpm_limiter = (config.opt("LLM_TPM_SHARE_LIMITER", "1") or "1").strip().lower() \
+            not in {"0", "false", "no", "off"}
+
+    def _limiter(self, model: str) -> token_budget.TokenRateLimiter:
+        limit = self.tpm_limit_override if self.tpm_limit_override is not None else token_budget.tpm_limit(model)
+        limit = max(0, int(limit or 0))
+        limiter = self._limiters.get(model)
+        if limiter is None or limiter.limit_tpm != limit:
+            if self.share_tpm_limiter and self.tpm_limit_override is None:
+                limiter = token_budget.shared_limiter(model, limit)
+            else:
+                limiter = token_budget.TokenRateLimiter(limit)
+            self._limiters[model] = limiter
+        return limiter
 
     def _get_groq_client(self, api_key: str) -> Any:
         if self.client is not None:
@@ -140,9 +214,55 @@ class LLMClient:
             raise last_exc
         raise ProviderExhausted("No LLM provider or keys available")
 
+    def _prepare_request(self, messages: list[dict[str, Any]], *, model: str, step: str,
+                         tools: list[dict[str, Any]] | None,
+                         kwargs: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Terapkan anggaran token SEBELUM request dikirim.
+
+        - Token output dibatasi (``max_completion_tokens``) bila caller tidak menentukan.
+        - Prompt dipangkas agar prompt + output muat di kuota TPM model.
+        - Request ditahan sebentar kalau kuota menit berjalan sudah hampir habis.
+        """
+        arguments = dict(kwargs)
+        # gpt-oss memakai token "reasoning" yang ikut dihitung sebagai output. Untuk step
+        # yang hanya perlu JSON terstruktur, effort rendah menghemat ratusan token dan
+        # menyisakan ruang lebih besar untuk prompt. Diatur lewat env, bukan di-hardcode.
+        if "reasoning_effort" not in arguments:
+            default_effort = (config.opt("LLM_REASONING_EFFORT", "") or "").strip().lower()
+            if default_effort in {"low", "medium", "high"}:
+                arguments["reasoning_effort"] = default_effort
+        requested_output = arguments.get("max_completion_tokens") or arguments.get("max_tokens")
+        if not requested_output:
+            requested_output = token_budget.default_max_completion_tokens()
+            arguments["max_completion_tokens"] = requested_output
+        try:
+            requested_output = int(requested_output)
+        except (TypeError, ValueError):
+            requested_output = token_budget.default_max_completion_tokens()
+            arguments["max_completion_tokens"] = requested_output
+
+        limiter = self._limiter(model)
+        budget_tokens = token_budget.prompt_budget(limiter.limit_tpm, requested_output)
+        fitted, estimated, compacted = token_budget.fit_messages(messages, budget_tokens, tools=tools)
+        if compacted and self.emitter:
+            self.emitter.emit("info", "token_budget", step=step, status="compacted",
+                              tokens_in=estimated,
+                              detail={"model": model, "estimated_prompt_tokens": estimated,
+                                      "prompt_budget": budget_tokens,
+                                      "max_completion_tokens": requested_output})
+
+        waited = limiter.wait(estimated + requested_output)
+        if waited and self.emitter:
+            self.emitter.emit("info", "token_budget", step=step, status="tpm_throttled",
+                              tokens_in=estimated,
+                              detail={"model": model, "waited_seconds": round(waited, 1),
+                                      "tpm_limit": limiter.limit_tpm})
+        return fitted, arguments
+
     def _chat_with_model(self, messages: list[dict[str, Any]], *, step: str,
                           model: str, tools: list[dict[str, Any]] | None = None,
                           response_format: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        messages, kwargs = self._prepare_request(messages, model=model, step=step, tools=tools, kwargs=kwargs)
         arguments: dict[str, Any] = {"model": model, "messages": messages, **kwargs}
         if tools is not None:
             arguments["tools"] = tools
@@ -152,6 +272,7 @@ class LLMClient:
         max_key_attempts = max(1, len(self.key_pool.keys))
         key_attempts = 0
         tool_retries = 0
+        too_large_retry = False      # paling banyak satu kali: coba lagi dengan output lebih kecil
 
         while key_attempts < max_key_attempts:
             try:
@@ -178,6 +299,7 @@ class LLMClient:
                 self.tokens_in += input_tokens
                 self.tokens_out += output_tokens
                 self.cost_usd += cost
+                self._limiter(model).record(input_tokens + output_tokens)
                 if self.emitter:
                     self.emitter.emit("llm", model, step=step, tokens_in=input_tokens,
                                       tokens_out=output_tokens, cost_usd=cost,
@@ -186,6 +308,13 @@ class LLMClient:
                                               "key_id": KeyPool.mask_key(api_key)})
                 return response
             except RateLimitError as exc:
+                if _is_request_too_large(exc):
+                    if too_large_retry:
+                        raise self._too_large_error(model, exc) from None
+                    too_large_retry = True
+                    messages, arguments = self._shrink_after_413(
+                        messages, arguments, model=model, step=step, tools=tools, exc=exc)
+                    continue
                 # If only 1 key is available, don't sleep in unit tests with cooldown duration 0
                 cooldown_dur = self.key_pool.cooldown_seconds
                 if len(self.key_pool.keys) <= 1 and cooldown_dur > 0:
@@ -213,6 +342,15 @@ class LLMClient:
                         f"Model '{model}' mengirim tool call yang ditolak Groq: {_error_message(exc)[:200]}")
                 if status_code == 404 and "does not exist" in _error_message(exc).lower():
                     raise ModelUnavailable(f"Model '{model}' tidak tersedia di Groq.")
+                if _is_request_too_large(exc):
+                    # 413 dari Groq: bukan error sementara dan tidak tergantung kunci.
+                    # Satu kali percobaan ulang dengan prompt+output lebih kecil, lalu berhenti.
+                    if too_large_retry:
+                        raise self._too_large_error(model, exc) from None
+                    too_large_retry = True
+                    messages, arguments = self._shrink_after_413(
+                        messages, arguments, model=model, step=step, tools=tools, exc=exc)
+                    continue
                 if status_code in (429, 500, 502, 503, 520, 524):
                     self.key_pool.cooldown(api_key, duration=self.key_pool.cooldown_seconds or 5.0)
                     key_attempts += 1
@@ -240,6 +378,48 @@ class LLMClient:
                 raise RuntimeError(f"LLM request failed ({type(exc).__name__}: {str(exc)[:150]})") from None
 
         raise ProviderExhausted(f"All keys exhausted after rate limits for model '{model}'")
+
+    def _too_large_error(self, model: str, exc: BaseException) -> RequestTooLarge:
+        """Ubah error 413 penyedia menjadi pesan Indonesia yang bisa ditindaklanjuti."""
+        limit, requested = _tpm_numbers(exc)
+        message = too_large_message(model, limit=limit, requested=requested)
+        if self.emitter:
+            self.emitter.emit("error", "llm_request", step="llm", status="request_too_large",
+                              detail={"model": model, "tpm_limit": limit, "requested_tokens": requested,
+                                      "message": message})
+        return RequestTooLarge(message)
+
+    def _shrink_after_413(self, messages: list[dict[str, Any]], arguments: dict[str, Any], *,
+                          model: str, step: str, tools: list[dict[str, Any]] | None,
+                          exc: BaseException) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Satu percobaan pemulihan setelah 413: pangkas prompt lebih agresif + output lebih kecil.
+
+        Batas yang dipakai diambil dari angka TPM di body error bila ada (itu kebenaran
+        penyedia untuk akun ini), bukan dari batas yang di-hardcode.
+        """
+        limit, requested = _tpm_numbers(exc)
+        current_output = int(arguments.get("max_completion_tokens") or token_budget.default_max_completion_tokens())
+        # Kurangi output dulu (tidak mengurangi instruksi), maksimal 1/3 dari sebelumnya.
+        new_output = max(256, min(current_output, int(current_output / 3) or 256))
+        if requested and limit and requested > limit:
+            overflow = requested - limit
+            new_output = max(256, min(new_output, max(256, current_output - overflow)))
+        arguments = {**arguments, "max_completion_tokens": new_output}
+
+        budget = token_budget.prompt_budget(limit or self._limiter(model).limit_tpm, new_output)
+        fitted, estimated, compacted = token_budget.fit_messages(messages, budget, tools=tools)
+        if not compacted and budget <= 0:
+            # Tanpa batas TPM yang diketahui, tetap potong separuh prompt terbesar sebagai upaya terakhir.
+            half = token_budget.count_tokens(messages, tools) // 2
+            fitted, estimated, compacted = token_budget.fit_messages(messages, half, tools=tools)
+        if self.emitter:
+            self.emitter.emit("warn", "token_budget", step=step, status="compacted_after_413",
+                              tokens_in=estimated,
+                              detail={"model": model, "provider_tpm_limit": limit,
+                                      "provider_requested": requested,
+                                      "max_completion_tokens": new_output,
+                                      "prompt_budget": budget})
+        return fitted, arguments
 
     def _check_budget(self, tokens_in: int, tokens_out: int, cost: float) -> None:
         max_tokens = self.budget.get("max_tokens")

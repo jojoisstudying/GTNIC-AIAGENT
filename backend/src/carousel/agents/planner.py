@@ -17,6 +17,8 @@ from collections import Counter
 from copy import deepcopy
 
 from src import config
+from src.core import tokens as token_budget
+from src.carousel.sources import SourceCatalog
 from src.carousel.layouts import validate_rhythm
 from src.carousel.layouts import registry as layout_registry
 from src.carousel.layouts.models import ROLES, validate_content
@@ -61,6 +63,9 @@ TOPIK POSTING: {topic}
 HASIL RISET (dari Agent 1):
 {research}
 
+SUMBER RISET YANG BOLEH DIRUJUK (id + URL persis):
+{source_catalog}
+
 Buat rencana SATU post Instagram dengan aturan berikut:
 - Pipeline hanya menghasilkan GAMBAR statis: format "single_image" (1 slide, role "single") atau "carousel" (5-6 slide). Abaikan tren yang hanya berlaku untuk video kecuali bisa diterjemahkan jadi gambar.
 - STRUKTUR CAROUSEL: slide pertama role "cover" (hook visual), 3-4 slide role "content" (substansi), slide terakhir role "cta".
@@ -69,7 +74,7 @@ Buat rencana SATU post Instagram dengan aturan berikut:
 - Setiap slide: headline maks 8 kata, subtext maks 22 kata. Untuk slide content, subtext berisi penjelasan substantif (idealnya 8-22 kata).
 - pose_tags hanya dari available_poses. Jika butuh pose lain, isi new_pose_request dan pakai pose terdekat.
 - KEJUJURAN: dilarang membuat angka/statistik yang tidak ada di riset/brand/topik. DILARANG janji hasil atau klaim kesehatan (mis. "mengurangi kelelahan", "meningkatkan produktivitas", "terbukti"). Tulis sebagai SARAN PRAKTIS ("Coba...", "Biasakan...", "Bisa dimulai dengan..."), bukan janji hasil.
-- research_used: hanya URL yang tertulis di HASIL RISET (sources, source_url, source_urls). Salin persis, jangan mengarang URL.
+- research_used: daftar sumber yang benar-benar kamu pakai. WAJIB memakai id dari blok SUMBER RISET YANG BOLEH DIRUJUK (S1, S2, ...) atau menyalin URL PERSIS dari blok itu. Jangan menulis URL lain, jangan mengarang, jangan memotong URL.
 - caption: kalimat pertama hook, isi singkat, lalu ajakan bertindak. Sesuai tone brand, tanpa janji hasil.
 - hashtags: 3-8 buah, diawali #.
 - schedule.slots: ambil waktu HANYA dari posting_time riset (tulis persis sebagaimana di riset). Waktu lain yang kamu usulkan sendiri boleh untuk A/B test, tapi akan diberi label "asumsi". ab_test: jelaskan perbandingan antar slot.
@@ -238,31 +243,54 @@ def _variety_note(history: list[dict], approved: dict) -> str:
 # ---------------------------------------------------------------- katalog untuk prompt
 
 def _layout_catalog_prompt(approved: dict | None = None) -> str:
-    """Katalog ringkas (tanpa field kosong) agar hemat token."""
+    """Katalog ringkas untuk prompt: teks padat, bukan JSON penuh (hemat ±60% token).
+
+    Notasi tiap baris:
+      id | role=… dens=… photo=… | slot: nama(wajib*)(min-max karakter)[list min-max×item_max]
+      | param: nama=a|b|c | pose: … | tags: …
+
+    Semua informasi yang dipakai validasi tetap ada (nama slot, wajib/tidak, batas
+    karakter/jumlah item, enum params, pose_tags, tags); hanya pembungkus JSON yang
+    dihilangkan supaya prompt planner tidak melewati batas TPM.
+    """
     approved = approved if approved is not None else _approved()
-    catalog = []
+    lines = [
+        "KATALOG (1 baris=1 layout). * = slot wajib. (a-b)=min-max karakter; "
+        "{list a-b×c}=tipe list, a-b item, maks c karakter/item; "
+        "{num}/{text}/{icon}/{image}=tipe non-teks. r=role d=density p=needs_photo. "
+        "s=slots pr=params ps=pose_tags tg=tags.",
+    ]
     for spec in approved.values():
-        slots = {}
-        for name, s in spec.slots.items():
-            d = {"type": s.type}
-            for key in ("required", "min_chars", "max_chars", "min_items", "max_items", "item_max_chars"):
-                v = getattr(s, key)
-                if v:
-                    d[key] = v
-            slots[name] = d
-        entry = {"id": spec.id, "role": spec.meta.role, "density": spec.meta.density,
-                 "needs_photo": spec.meta.needs_photo, "slots": slots,
-                 "params": {n: list(p.enum) for n, p in spec.params.items()}}
+        slots = []
+        for name, s in sorted(spec.slots.items()):
+            part = f"{name}*" if s.required else name
+            if s.type != "text":
+                part += "{" + s.type
+                if s.min_items or s.max_items:
+                    part += f" {s.min_items}-{s.max_items}"
+                if s.item_max_chars:
+                    part += f"×{s.item_max_chars}"
+                part += "}"
+            limits = []
+            if s.min_chars:
+                limits.append(str(s.min_chars))
+            limits.append(str(s.max_chars))
+            part += "(" + "-".join(limits).rstrip("-") + ")"
+            slots.append(part)
+        row = (f"{spec.id}|r={spec.meta.role} d={spec.meta.density} p={spec.meta.needs_photo}"
+               f"|s: {', '.join(slots) or '-'}")
+        if spec.params:
+            row += "|pr: " + ";".join(
+                f"{n}={('|'.join(p.enum))}" for n, p in sorted(spec.params.items()))
         if spec.meta.pose_tags:
-            entry["pose_tags"] = list(spec.meta.pose_tags)
+            row += "|ps: " + ",".join(spec.meta.pose_tags)
         if spec.meta.tags:
-            entry["tags"] = list(spec.meta.tags)
-        catalog.append(entry)
-    return json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
+            row += "|tg: " + ",".join(spec.meta.tags)
+        lines.append(row)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- isi slot (tanpa mengarang fakta)
-
 _STOPWORDS = {"yang", "untuk", "dengan", "dari", "dan", "atau", "pada", "dalam", "agar", "bisa", "anda", "kamu",
               "kita", "kami", "ini", "itu", "tips", "cara", "lebih", "setiap", "sebelum", "setelah", "mulai",
               "langkah", "praktis", "mudah", "singkat", "panduan"}
@@ -755,6 +783,10 @@ def normalize(plan: dict, brand: dict, research: dict, *, history: list[dict] | 
             tags.append(h)
     plan["hashtags"] = tags[:8]
 
+    # Referensi riset: id (S1) / URL Markdown / trailing slash -> URL persis dari riset.
+    # Referensi yang tidak dikenal dibiarkan apa adanya agar validate() menolaknya.
+    _resolve_research_used(plan, research)
+
     # jadwal: KODE yang menentukan mana slot dari riset dan mana asumsi
     sched = plan.get("schedule") or {}
     pt = _nt(json.dumps(research.get("posting_time", {}), ensure_ascii=False))
@@ -783,27 +815,30 @@ def _unsupported_numbers(text: str, blob: str, topic: str = "") -> list[str]:
     return [n for n in dict.fromkeys(nums) if n not in combined_blob]
 
 
-def _research_urls(research: dict) -> set[str]:
-    """Semua URL yang benar-benar ada di hasil riset (sources, source_url, source_urls, facts, dst).
+def _resolve_research_used(plan: dict, research: dict) -> list[str]:
+    """Rapikan dan koreksi ``research_used`` memakai katalog sumber yang terverifikasi.
 
-    Model sering mengutip URL dari posting_time.source_urls / trending_formats[].source_url
-    yang tidak ikut masuk ke daftar `sources` tingkat atas; itu tetap URL asli, bukan karangan.
+    - Referensi berupa id (``S1``) atau URL apa pun (termasuk format Markdown dan
+      trailing slash) dicocokkan ke katalog.
+    - Bila cocok, nilai diganti URL PERSIS dari riset — bukan teks yang dikirim model.
+    - Bila tidak bisa dicocokkan dengan aman, referensi dibiarkan apa adanya supaya
+      :func:`validate` menolaknya. Menghapusnya di sini akan membuat URL karangan
+      lolos tanpa jejak, jadi itu tidak boleh terjadi.
     """
-    found: set[str] = set()
-
-    def walk(node):
-        if isinstance(node, str):
-            for m in re.findall(r"https?://[^\s\"'<>)\]]+", node):
-                found.add(m.rstrip(".,;/"))
-        elif isinstance(node, dict):
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, (list, tuple)):
-            for v in node:
-                walk(v)
-
-    walk(research)
-    return found
+    catalog = SourceCatalog.from_research(research)
+    raw = plan.get("research_used")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raw = [raw]
+    out: list[str] = []
+    for ref in raw:
+        url = catalog.resolve(ref)
+        value = url if url else str(ref)
+        if value and value not in out:
+            out.append(value)
+    plan["research_used"] = out
+    return out
 
 
 def validate(plan: dict, blob: str, research: dict, topic: str = "", *, history: list[dict] | None = None,
@@ -878,10 +913,17 @@ def validate(plan: dict, blob: str, research: dict, topic: str = "", *, history:
     if not sched.get("ab_test"):
         issues.append("schedule.ab_test kosong")
 
-    valid_urls = _research_urls(research)
-    fake = [u for u in plan.get("research_used", []) if str(u).rstrip(".,;/") not in valid_urls]
+    # Referensi riset: dicocokkan ke katalog sumber (id S1 atau URL, setelah normalisasi)
+    # tetapi tetap STRICT — referensi yang tidak ada di riset asli ditolak.
+    catalog = SourceCatalog.from_research(research)
+    refs = plan.get("research_used") or []
+    if not isinstance(refs, list):
+        refs = [refs]
+    fake = [str(ref) for ref in refs if catalog.resolve(ref) is None]
     if fake:
-        issues.append(f"research_used berisi URL yang tidak ada di sources riset: {fake}")
+        issues.append(
+            "research_used berisi referensi yang tidak ada di sumber riset (gunakan id S1, S2, "
+            f"atau salin URL dari blok SUMBER RISET): {fake}")
 
     text = " ".join([cap] + [f"{s.get('headline', '')} {s.get('subtext', '')}" for s in slides])
     bad = _unsupported_numbers(text, blob, topic)
@@ -895,7 +937,208 @@ def validate(plan: dict, blob: str, research: dict, topic: str = "", *, history:
     return issues
 
 
+# ---------------------------------------------------------------- anggaran prompt
+
+def _prompt_budget_cfg(catalog_text: str | None = None, source_block: str | None = None) -> dict:
+    """Baca batas prompt planner dari env (tidak ada TPM yang di-hardcode).
+
+    LLM_TPM_LIMIT/LLM_TPM_LIMITS dipakai untuk menghitung berapa karakter prompt
+    yang boleh dikirim setelah reservasi token output. Nilai lain mengatur
+    seberapa agresif nilai di dalam riset/brand dipotong.
+
+    Kalau akun punya TPM kecil, token output diturunkan lebih dulu — bukan
+    prompt-nya — karena katalog layout + instruksi adalah bagian yang tidak boleh
+    hilang. Dengan begitu LLM_PLANNER_MAX_TOKENS tidak perlu diedit manual saat
+    LLM_TPM_LIMIT diubah.
+    """
+    def _int(name: str, default: int) -> int:
+        try:
+            return int(float(config.opt(name, str(default)) or default))
+        except ValueError:
+            return default
+
+    limit = token_budget.tpm_limit(config.opt("GROQ_MODEL", "openai/gpt-oss-120b"))
+    # Rencana carousel yang valid butuh ±2.700-3.300 token output (JSON 5-6 slide,
+    # caption, hashtag, jadwal). Batas default 2048 membuat JSON terpotong.
+    max_out = _int("LLM_PLANNER_MAX_TOKENS", 3072)
+    if limit > 0:
+        usable = int(limit * token_budget.safety_ratio())
+        # Bagian prompt yang tidak boleh dipangkas: instruksi + katalog layout.
+        floor = token_budget.count_tokens([{"role": "system", "content": SYSTEM},
+                                           {"role": "user", "content": PROMPT}])
+        floor += token_budget.estimate_tokens(catalog_text or "")
+        # Daftar sumber boleh dirujuk juga tidak boleh hilang dari prompt.
+        floor += token_budget.estimate_tokens(source_block or "")
+        # Sisakan sedikit ruang untuk riset/brand minimal, lalu beri sisanya ke output.
+        max_out = min(max_out, usable - floor - 256)
+        # Output di bawah 512 token hampir pasti memotong JSON rencana; daripada
+        # menghasilkan rencana rusak, biarkan 413 muncul dengan pesan yang jelas.
+        max_out = max(512, max_out)
+    token_budget_tokens = token_budget.prompt_budget(limit, max_out)
+    return {
+        "tpm_limit": limit,
+        "max_completion_tokens": max_out,
+        # Batas estimasi token untuk seluruh prompt planner (instruksi + katalog + konteks).
+        "max_prompt_tokens": token_budget_tokens,
+        "research_value_chars": _int("LLM_RESEARCH_VALUE_CHARS", 400),
+        "brand_value_chars": _int("LLM_BRAND_VALUE_CHARS", 300),
+    }
+
+
+def _compact_research(research: dict, *, urls_per_item: int = 2) -> dict:
+    """Buang bagian riset yang panjang tapi jarang dipakai planner.
+
+    Yang WAJIB tetap ada (dipakai aturan prompt & validasi): ``facts.stats``,
+    ``facts.quotes``, ``posting_time``, ``sources`` (URL), dan ``topic`` kandidat.
+    Yang diringkas: catatan panjang kandidat topik, alasan tren, sudut pandang.
+    """
+    if not isinstance(research, dict):
+        return research
+    out = dict(research)
+
+    def clip(value, limit: int) -> str:
+        """Potong teks, tapi JANGAN pernah memotong URL (model menyalinnya apa adanya)."""
+        return token_budget.clip_text(value, limit)
+
+    formats = []
+    for item in (research.get("trending_formats") or [])[:4]:
+        if isinstance(item, dict):
+            formats.append({"name": clip(item.get("name"), 60),
+                            "source_url": clip(item.get("source_url"), 120)})
+    out["trending_formats"] = formats
+    out["content_angles"] = [clip(a, 80) for a in (research.get("content_angles") or [])[:3]]
+    candidates = []
+    for c in (research.get("topic_candidates") or [])[:3]:
+        if not isinstance(c, dict):
+            continue
+        candidates.append({
+            "topic": clip(c.get("topic"), 90),
+            "relevance_score": c.get("relevance_score"),
+            "suggested_angle": clip(c.get("suggested_angle"), 80),
+            "risk_notes": clip(c.get("risk_notes"), 100),
+            "source_urls": [clip(u, 120) for u in (c.get("source_urls") or [])[:urls_per_item]],
+        })
+    out["topic_candidates"] = candidates
+    out["sources"] = [clip(u, 120) for u in (research.get("sources") or [])[:5]]
+    if isinstance(out.get("posting_time"), dict):
+        pt = dict(out["posting_time"])
+        for key, value in pt.items():
+            if isinstance(value, str):
+                pt[key] = clip(value, 80)
+            elif isinstance(value, list):
+                pt[key] = [clip(v, 120) for v in value[:2]]
+        out["posting_time"] = pt
+    facts = out.get("facts")
+    if isinstance(facts, dict):
+        out["facts"] = {
+            "stats": [s for s in (facts.get("stats") or []) if isinstance(s, dict)][:6],
+            "quotes": [q for q in (facts.get("quotes") or []) if isinstance(q, dict)][:3],
+        }
+    return out
+
+
+def _fit_planner_static(static: dict, max_tokens: int) -> dict:
+    """Ringkas riset & brand sampai prompt+output muat di kuota TPM.
+
+    Katalog layout tidak pernah dipotong: ia satu-satunya sumber id layout yang
+    valid, jadi kalau harus memilih, konteks pendukung yang dipangkas. Estimasi
+    token dihitung dari prompt yang benar-benar akan dikirim, bukan dari tebakan
+    panjang per bagian.
+    """
+    if max_tokens <= 0:
+        return static
+
+    def _estimate(candidate: dict) -> int:
+        payload = {"source_catalog": "", **candidate}
+        user = PROMPT.format(issues="", **payload)
+        return token_budget.count_tokens([{"role": "system", "content": SYSTEM},
+                                          {"role": "user", "content": user}])
+
+    out = dict(static)
+    if _estimate(out) <= max_tokens:
+        return out
+    research_node = json.loads(static["research"])
+    brand_node = json.loads(static["brand"])
+    # Daftar sumber boleh dirujuk tidak pernah ikut dipangkas: tanpa daftar itu model
+    # kembali mengarang atau memotong URL. Kalau harus memilih, konteks lain yang dipotong.
+    source_block = static.get("source_catalog") or ""
+    if source_block:
+        max_tokens = max(max_tokens, _estimate({**static, "research": "{}", "brand": "{}"}))
+    # Tahap 1: potong nilai panjang (tidak menghilangkan kunci apa pun).
+    for step in (300, 200, 150, 120, 90, 70, 50):
+        research_node = token_budget.truncate_values(research_node, step)
+        brand_node = token_budget.truncate_values(brand_node, step)
+        out["research"] = json.dumps(research_node, ensure_ascii=False, separators=(",", ":"))
+        out["brand"] = json.dumps(brand_node, ensure_ascii=False, separators=(",", ":"))
+        if _estimate(out) <= max_tokens:
+            return out
+    # Tahap 2: buang detail riset yang tidak dipakai aturan prompt.
+    research_node = _compact_research(research_node)
+    out["research"] = json.dumps(research_node, ensure_ascii=False, separators=(",", ":"))
+    if _estimate(out) <= max_tokens:
+        return out
+    # Tahap 3: sisakan hanya angka/kutipan bersumber + waktu posting + sumber.
+    minimal = {k: research_node[k] for k in ("facts", "posting_time", "sources") if k in research_node}
+    out["research"] = json.dumps(minimal, ensure_ascii=False, separators=(",", ":"))
+    if _estimate(out) <= max_tokens:
+        return out
+    # Tahap 4: brand kit inti saja (yang benar-benar dipakai aturan prompt).
+    core = ("company", "industry", "tone", "audience", "content_pillars", "rules",
+            "available_poses", "products_services")
+    out["brand"] = json.dumps({k: brand_node[k] for k in core if k in brand_node},
+                              ensure_ascii=False, separators=(",", ":"))
+    if _estimate(out) <= max_tokens:
+        return out
+    # Tahap 5 (upaya terakhir): kurangi juga JUMLAH butir, bukan hanya panjang nilainya.
+    # Angka/kutipan bersumber tetap disisakan supaya aturan kejujuran di prompt masih bisa
+    # dipatuhi; katalog layout tidak disentuh karena tanpa ia model mengarang id layout.
+    facts = research_node.get("facts") if isinstance(research_node.get("facts"), dict) else {}
+    fact_stats = (facts or {}).get("stats") or []
+    fact_quotes = (facts or {}).get("quotes") or []
+    for keep_stats, keep_quotes, keep_sources, keep_brand in ((3, 2, 4, 60), (2, 1, 3, 40), (1, 1, 2, 30)):
+        slim = {
+            "facts": {"stats": list(fact_stats)[:keep_stats],
+                      "quotes": list(fact_quotes)[:keep_quotes]},
+            "sources": [str(u) for u in (research_node.get("sources") or [])][:keep_sources],
+        }
+        if research_node.get("posting_time"):
+            slim["posting_time"] = research_node["posting_time"]
+        out["research"] = json.dumps(token_budget.truncate_values(slim, keep_brand),
+                                     ensure_ascii=False, separators=(",", ":"))
+        out["brand"] = json.dumps(
+            token_budget.truncate_values({k: brand_node[k] for k in core if k in brand_node}, keep_brand),
+            ensure_ascii=False, separators=(",", ":"))
+        if _estimate(out) <= max_tokens:
+            return out
+    return out
+
+
+
 # ---------------------------------------------------------------- orkestrasi
+
+def summarize_issues(issues: list[str]) -> str:
+    """Pesan Indonesia yang bisa dibaca pengguna untuk kegagalan validasi rencana.
+
+    Isu teknis per aturan tetap disimpan di `issues` (dipakai untuk retry ke LLM dan
+    log), tetapi yang ditampilkan ke pengguna adalah ringkasan yang menjelaskan apa
+    yang salah dan apa langkah berikutnya — tanpa nama variabel internal atau JSON mentah.
+    """
+    items = [str(i) for i in (issues or [])]
+    if not items:
+        return "Rencana konten gagal divalidasi."
+
+    refs = [i for i in items if "research_used" in i]
+    if refs:
+        return ("Rencana konten gagal divalidasi karena AI memakai referensi yang tidak tersedia "
+                "dalam hasil riset. Silakan coba kembali; bila tetap gagal, jalankan riset ulang "
+                "agar daftar sumber terbarui.")
+
+    if len(items) == 1:
+        return f"Rencana konten gagal divalidasi: {items[0]}. Silakan coba kembali."
+    shown = "; ".join(items[:3])
+    extra = f" (dan {len(items) - 3} masalah lain)" if len(items) > 3 else ""
+    return f"Rencana konten gagal divalidasi: {shown}{extra}. Silakan coba kembali."
+
 
 def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, ctx=None,
         history: list[dict] | None = None) -> dict:
@@ -913,9 +1156,25 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
                                         "content_pillars", "rules", "available_poses", "products_services",
                                         "business_goals", "target_audience", "contact_info", "approval_workflow",
                                         "operating_preferences") if k in brand}
-    static = dict(brand=json.dumps(brand_view, ensure_ascii=False, separators=(",", ":")), topic=topic,
-                  research=json.dumps(research, ensure_ascii=False, separators=(",", ":")),
-                  layout_catalog=_layout_catalog_prompt(approved), variety=_variety_note(history, approved))
+    # Konteks masuk prompt dalam bentuk ringkas: riset dipangkas per nilai agar tidak
+    # menghabiskan kuota TPM, tetapi seluruh kunci (sumber, stats, quotes, posting_time)
+    # tetap ada supaya aturan kejujuran di prompt masih bisa dipatuhi model.
+    catalog_text = _layout_catalog_prompt(approved)
+    # Daftar URL yang boleh dirujuk dibangun dari riset ASLI dan dikirim utuh: model
+    # disuruh menyalin dari blok ini, jadi tidak ada alasan ia mengarang atau memotong URL.
+    sources = SourceCatalog.from_research(research)
+    source_block = sources.prompt_block()
+    prompt_cfg = _prompt_budget_cfg(catalog_text, source_block)
+    research_view = token_budget.truncate_values(research, prompt_cfg["research_value_chars"])
+    brand_text = json.dumps(token_budget.truncate_values(brand_view, prompt_cfg["brand_value_chars"]),
+                            ensure_ascii=False, separators=(",", ":"))
+    research_text = json.dumps(research_view, ensure_ascii=False, separators=(",", ":"))
+    static = dict(brand=brand_text, topic=topic, research=research_text,
+                  source_catalog=source_block,
+                  layout_catalog=catalog_text, variety=_variety_note(history, approved))
+    if prompt_cfg["max_prompt_tokens"]:
+        # Sisakan ruang untuk balikan perbaikan (daftar "PERBAIKI masalah…" di percobaan 2/3).
+        static = _fit_planner_static(static, max(512, prompt_cfg["max_prompt_tokens"] - 400))
     issues, best = [], None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         on_step(f"[planner] percobaan {attempt}" + (f" (memperbaiki {len(issues)} masalah)" if issues else ""))
@@ -924,7 +1183,7 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
             messages=[{"role": "system", "content": SYSTEM},
                       {"role": "user", "content": PROMPT.format(issues=fb, **static)}],
             step="planner", model=model, temperature=RETRY_TEMPERATURES[min(attempt, len(RETRY_TEMPERATURES)) - 1],
-            max_completion_tokens=4096)
+            max_completion_tokens=prompt_cfg["max_completion_tokens"])
         plan = _json_object(resp.choices[0].message.content or "")
         if plan is None:
             issues = ["output bukan JSON valid"]
