@@ -1551,12 +1551,15 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
 # ===========================================================================
 
 def _demo_seed_allowed() -> bool:
-    """Seed demo hanya bila diizinkan eksplisit, atau default-nya di luar production."""
-    flag = config.opt("ALLOW_DEMO_SEED", "").lower()
-    if flag:
-        return flag == "true"
-    env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
-    return env not in {"production", "prod"}
+    """Seed demo HANYA bila ALLOW_DEMO_SEED=true. Default: mati (dashboard hanya menampilkan data nyata)."""
+    return config.opt("ALLOW_DEMO_SEED", "").strip().lower() == "true"
+
+
+def _insight_is_simulated(ins) -> bool:
+    try:
+        return json.loads(ins.data_points_json or "{}").get("is_simulated") is True
+    except ValueError:
+        return False
 
 
 @app.post("/api/v1/analytics/seed-demo", dependencies=[Depends(auth.verify_api_key)])
@@ -1579,19 +1582,34 @@ def ingest_analytics_endpoint():
     return result
 
 
+@app.delete("/api/v1/analytics/demo", dependencies=[Depends(auth.verify_api_key)])
+def purge_demo_analytics_endpoint():
+    """Menghapus seluruh data analytics & insight simulasi dari database (data nyata tidak disentuh)."""
+    with SessionLocal() as session:
+        rows = [r for r in session.scalars(select(PostAnalytics)).all() if r.is_simulated]
+        ins = [i for i in session.scalars(select(AnalyticsInsight)).all() if _insight_is_simulated(i)]
+        for obj in (*rows, *ins):
+            session.delete(obj)
+        session.commit()
+        return {"status": "ok", "deleted_records": len(rows), "deleted_insights": len(ins)}
+
+
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "scheduler_enabled": config.opt("SCHEDULER_ENABLED", "false").lower() == "true"}
 
 
 @app.get("/api/v1/analytics/dashboard")
-def get_analytics_dashboard_endpoint():
+def get_analytics_dashboard_endpoint(include_simulated: bool = False):
     """Mengambil data performa postingan dan rekomendasi insight berbasis metrik nyata/simulasi transparan."""
     with SessionLocal() as session:
         records = session.scalars(select(PostAnalytics).order_by(desc(PostAnalytics.id))).all()
         if not records and _demo_seed_allowed():
             records = seed_demo_analytics_data(session)
         insights = session.scalars(select(AnalyticsInsight).order_by(desc(AnalyticsInsight.id))).all()
+        if not include_simulated:  # default: hanya data nyata dari Instagram
+            records = [r for r in records if not r.is_simulated]
+            insights = [i for i in insights if not _insight_is_simulated(i)]
 
         total_reach = sum(r.reach or 0 for r in records)
         total_likes = sum(r.likes or 0 for r in records)

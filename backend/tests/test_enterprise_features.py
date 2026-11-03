@@ -86,8 +86,20 @@ def test_calendar_rejects_invalid_state_transitions(client):
     assert published.status_code == 409
 
 
+def test_dashboard_has_no_demo_data_by_default_and_demo_can_be_purged(client):
+    empty = client.get("/api/v1/analytics/dashboard").json()
+    assert empty["summary"]["total_posts_tracked"] == 0 and empty["posts"] == [] and empty["insights"] == []
+    assert client.post("/api/v1/analytics/seed-demo").status_code == 200
+    assert client.get("/api/v1/analytics/dashboard").json()["posts"] == []  # simulasi disembunyikan
+    assert client.get("/api/v1/analytics/dashboard?include_simulated=true").json()["posts"]
+    purged = client.delete("/api/v1/analytics/demo").json()
+    assert purged["deleted_records"] >= 3 and purged["deleted_insights"] >= 2
+    assert client.get("/api/v1/analytics/dashboard?include_simulated=true").json()["posts"] == []
+
+
 def test_analytics_dashboard_and_feedback_traceability(client):
-    res = client.get("/api/v1/analytics/dashboard")
+    assert client.post("/api/v1/analytics/seed-demo").status_code == 200
+    res = client.get("/api/v1/analytics/dashboard?include_simulated=true")
     assert res.status_code == 200
     data = res.json()
     summary = data["summary"]

@@ -293,19 +293,48 @@ NEW_COLUMNS = {
 }
 
 
+def _default_clause(col) -> str:
+    d = col.default
+    if d is None or not getattr(d, "is_scalar", False):
+        return ""
+    v = d.arg
+    if isinstance(v, bool):
+        return f" DEFAULT {int(v)}"
+    if isinstance(v, (int, float)):
+        return f" DEFAULT {v}"
+    if isinstance(v, str):
+        return " DEFAULT '" + v.replace("'", "''") + "'"
+    return ""
+
+
 def ensure_schema(bind) -> None:
-    """Buat tabel yang belum ada dan tambahkan kolom baru pada tabel lama (idempotent)."""
+    """Buat tabel yang belum ada DAN tambahkan kolom model yang belum ada di tabel lama (idempotent).
+
+    Menangani database lama yang dibuat dari versi model sebelumnya, sehingga query tidak gagal
+    dengan 'no such column'. Kolom NOT NULL hanya ditambahkan sebagai NOT NULL bila punya default skalar.
+    """
+    import logging
+    log = logging.getLogger("gtnic.db")
     Base.metadata.create_all(bind)
     insp = inspect(bind)
-    for table, cols in NEW_COLUMNS.items():
-        if not insp.has_table(table):
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
             continue
-        existing = {c["name"] for c in insp.get_columns(table)}
-        missing = {n: d for n, d in cols.items() if n not in existing}
-        if missing:
-            with bind.begin() as conn:
-                for name, ddl in missing.items():
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        missing = [c for c in table.columns if c.name not in existing]
+        if not missing:
+            continue
+        with bind.begin() as conn:
+            for col in missing:
+                clause = _default_clause(col)
+                not_null = " NOT NULL" if (not col.nullable and clause) else ""
+                conn.execute(text(
+                    f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" '
+                    f'{col.type.compile(dialect=bind.dialect)}{clause}{not_null}'))
+                if not col.nullable and not clause and isinstance(col.type, DateTime):
+                    conn.execute(text(f'UPDATE "{table.name}" SET "{col.name}" = CURRENT_TIMESTAMP '
+                                      f'WHERE "{col.name}" IS NULL'))
+                log.warning("Skema disinkronkan: kolom %s.%s ditambahkan", table.name, col.name)
 
 
 def ingest_publication_metrics(session, publication: Publication, metrics: dict[str, Any], *,

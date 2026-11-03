@@ -25,13 +25,13 @@ def _create_test_image(format="PNG", size=(100, 100), color="blue"):
     return buf.getvalue()
 
 
-def test_valid_logo_upload(client):
+def test_valid_logo_upload(client, tmp_path):
     img_bytes = _create_test_image("JPEG")
     files = {"file": ("logo.jpeg", img_bytes, "image/png")}
     res = client.post("/api/v1/brand/logo", files=files)
     assert res.status_code == 200
     assert res.json()["status"] == "ok"
-    saved = __import__("pathlib").Path(res.json()["path"])
+    saved = tmp_path / res.json()["path"]  
     assert saved.suffix == ".png"
     with Image.open(saved) as image:
         assert image.format == "PNG"
