@@ -47,8 +47,10 @@ SLIDE_TO_LAYOUT_ROLES = {
 
 # Janji hasil / klaim kesehatan yang tidak boleh muncul tanpa sumber (heuristik, bukan jaminan).
 CLAIM_PATTERNS = [
-    r"\bterbukti\b", r"\bdijamin\b", r"\bpasti\b", r"\bmengurangi\b", r"\bmenurunkan\b",
-    r"\bmencegah\b", r"\bmenyembuhkan\b", r"\bkelelahan\b", r"\bstres\b",
+    r"\bterbukti\b", r"\bdijamin\b", r"\bpasti\b",
+    r"\bmengurangi (?:penyakit|rasa sakit|berat badan|keluhan)\b",
+    r"\bmenurunkan (?:gula darah|tekanan darah|kolesterol|berat badan)\b",
+    r"\bmencegah penyakit\b", r"\bmenyembuhkan\b",
     r"\bmeningkatkan (?:produktivitas|output|efisiensi|hasil|performa|fokus|kualitas)\b",
     r"\b(?:lebih|jauh lebih) (?:cepat|sehat|produktif)\b",
 ]
