@@ -63,12 +63,41 @@ def _chat(client, *, step: str, **kwargs):
 
 
 def _extract_json(text: str):
-    m = re.search(r"\{.*\}", text or "", re.DOTALL)
+    if not text:
+        return None
+    # 1. Bersihkan tag pemikiran model dan pagar markdown bila ada
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I).strip()
+
+    # 2. Coba pakai json-repair jika tersedia (sangat ampuh untuk missing commas, trailing commas, single quotes, dll)
+    try:
+        import json_repair
+        obj = json_repair.loads(cleaned)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # 3. Coba regex manual + json standard
+    m = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if m:
+        candidate = m.group(0)
         try:
-            return json.loads(m.group(0))
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            pass
+            # Perbaiki sintaks umum seperti missing comma sebelum baris key berikutnya
+            # contoh: "val"\n"key": atau ]\n"key":
+            repaired = re.sub(r"([}\]\"\d]|true|false|null)\s*\n\s*(\"[a-zA-Z0-9_]+\"\s*:)", r"\1,\n\2", candidate)
+            repaired = re.sub(r",\s*([\]}])", r"\1", repaired)
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
+            try:
+                import json5
+                return json5.loads(repaired)
+            except Exception:
+                pass
     return None
 
 

@@ -103,6 +103,13 @@ def _extract_json(text: str) -> Optional[dict]:
     """Ambil objek JSON pertama dari teks (abaikan <think>, pagar markdown, teks pengantar)."""
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I).strip()
+    try:
+        import json_repair
+        obj = json_repair.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
     decoder = json.JSONDecoder()
     for m in re.finditer(r"\{", text):
         try:
