@@ -89,11 +89,11 @@ def sync_and_automate(session_factory) -> dict:
     with session_factory() as s:
         policy = _policy(s)
         for it in s.scalars(select(ContentStrategyItem).where(
-                ContentStrategyItem.status.in_(["producing", "awaiting_approval", "approved"]),
+                ContentStrategyItem.status.in_(["producing", "running", "awaiting_approval", "approved"]),
                 ContentStrategyItem.run_id.is_not(None))).all():
             run = s.get(Run, it.run_id)
             run_status = run.status if run else None
-            if it.status == "producing":
+            if it.status in {"producing", "running"}:
                 if run_status in {"awaiting_approval", "ok"}:
                     it.status = "awaiting_approval"; stats["synced"] += 1
                 elif run_status in {"failed", "qc_failed", "generation_failed"}:
@@ -162,14 +162,102 @@ def run_once(session_factory, publish_fn: Callable[[str], object], now: Optional
     return results
 
 
+def autopilot_once(session_factory, produce_fn: Callable[[int], object], strategy_fn: Callable[[], object] | None = None,
+                   research_fn: Callable[[], object] | None = None, now: Optional[datetime] = None,
+                   lead_hours: int = 48, research_every_hours: int = 24, max_concurrent: int = 1,
+                   stale_minutes: int = 45) -> dict:
+    """Pekerjaan otonom (tanpa browser): riset harian, strategi mingguan, produksi item yang mendekati jadwal.
+
+    Aman terhadap restart karena semua keputusan diambil dari state database, bukan memori proses.
+    Produksi hanya untuk item berstatus 'approved' (manusia ATAU kebijakan autonomi) -> gate approval tetap utuh.
+    """
+    from src.core.db import Approval, ResearchSnapshot
+    now = now or datetime.now(timezone.utc)
+    stats = {"researched": 0, "strategy_generated": 0, "auto_approved": 0, "produced": 0, "errors": 0,
+             "stale_runs": 0, "recovered_runs": 0}
+    today = now.strftime("%Y-%m-%d")
+    # Run 'running' yang terlalu lama = prosesnya mati (restart server/timeout): tandai gagal agar tidak
+    # menggantung selamanya dan tidak memblokir kuota produksi.
+    with session_factory() as s:
+        cutoff = now - timedelta(minutes=stale_minutes)
+        for r in s.scalars(select(Run).where(Run.status == "running")).all():
+            started = _aware(r.started_at)
+            if started and started < cutoff:
+                from src.core.db import Design
+                d = s.scalars(select(Design).where(Design.run_id == r.id).order_by(Design.version.desc())).first()
+                if d is not None and d.ok:
+                    # Output sudah jadi; thread mati sebelum status ditulis -> pulihkan, jangan dianggap gagal.
+                    r.status, r.error = "awaiting_approval", None
+                    stats["recovered_runs"] += 1
+                else:
+                    r.status, r.error = "failed", "Proses terhenti (server restart atau melewati batas waktu)."
+                    stats["stale_runs"] += 1
+        s.commit()
+    with session_factory() as s:
+        last_ok = s.scalars(select(ResearchSnapshot).where(ResearchSnapshot.ok.is_(True))
+                            .order_by(ResearchSnapshot.id.desc())).first()
+        last_at = _aware(last_ok.created_at) if last_ok else None
+        need_research = last_at is None or (now - last_at) >= timedelta(hours=research_every_hours)
+        open_future = s.scalars(select(ContentStrategyItem).where(
+            ContentStrategyItem.status.in_(["draft", "awaiting_approval", "approved", "scheduled", "producing"]),
+            ContentStrategyItem.plan_date >= today)).first()
+    if research_fn and need_research:
+        try:
+            research_fn(); stats["researched"] = 1
+        except Exception:
+            stats["errors"] += 1; log.exception("Autopilot: riset harian gagal")
+    if strategy_fn and not open_future:
+        try:
+            strategy_fn(); stats["strategy_generated"] = 1
+        except Exception:
+            stats["errors"] += 1; log.exception("Autopilot: strategi mingguan gagal")
+    to_produce: list[int] = []
+    with session_factory() as s:
+        policy = _policy(s)
+        for it in s.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.status.in_(["draft", "awaiting_approval"]),
+                ContentStrategyItem.run_id.is_(None))).all():
+            if autonomy.may_auto_approve(policy, it):
+                it.status, it.approved_by = "approved", "autonomy_policy"
+                s.add(Approval(entity_type="strategy_item", entity_id=str(it.id), decision="auto_approved",
+                               actor="autonomy_policy", actor_type="policy",
+                               notes=f"mode={policy['mode']}; kategori rutin"))
+                stats["auto_approved"] += 1
+        s.flush()
+        active = 0
+        for it in s.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.status.in_(["producing", "running"]), ContentStrategyItem.run_id.is_not(None))).all():
+            run = s.get(Run, it.run_id)
+            if run and run.status == "running":
+                active += 1
+        slots = max(0, max_concurrent - active)  # batasi pipeline paralel (rate limit LLM + CPU Playwright/ffmpeg)
+        due_items = []
+        for it in s.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.status == "approved", ContentStrategyItem.run_id.is_(None))).all():
+            due = parse_due(it.plan_date, it.scheduled_slot)
+            if due is None or due - now <= timedelta(hours=lead_hours):
+                due_items.append((due or now, it.id))
+        to_produce = [i for _, i in sorted(due_items)[:slots]]
+        s.commit()
+    for item_id in to_produce:
+        try:
+            produce_fn(item_id); stats["produced"] += 1
+        except Exception:
+            stats["errors"] += 1; log.exception("Autopilot: produksi item %s gagal", item_id)
+    return stats
+
+
 async def scheduler_loop(session_factory, publish_fn, interval_seconds: int = 60,
-                         ingest_interval_seconds: int = 21600, ingest_fn: Optional[Callable] = None) -> None:
+                         ingest_interval_seconds: int = 21600, ingest_fn: Optional[Callable] = None,
+                         autopilot_fn: Optional[Callable] = None) -> None:
     log.info("Scheduler dimulai (interval %ss, owner %s)", interval_seconds, OWNER)
     last_ingest: Optional[datetime] = None
     while True:
         try:
             if await asyncio.to_thread(acquire_leader, session_factory, max(120, interval_seconds * 3)):
                 await asyncio.to_thread(sync_and_automate, session_factory)
+                if autopilot_fn:
+                    await asyncio.to_thread(autopilot_fn)
                 await asyncio.to_thread(run_once, session_factory, publish_fn)
                 now = datetime.now(timezone.utc)
                 if ingest_fn and (last_ingest is None or (now - last_ingest).total_seconds() >= ingest_interval_seconds):

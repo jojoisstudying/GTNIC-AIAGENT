@@ -1,31 +1,12 @@
-# Optional local cutout dependency
+# SOCIALFLOW AI (GTNIC 2026) — Enterprise Social Media Operations Agent
 
-`rembg` is optional and isolated in `backend/requirements-image-processing.txt` because its security-patched release requires Pillow 12.1+, while MoviePy 2.2.1 requires Pillow <12. Install it only in a separate image-processing environment. The main backend and CI use `backend/requirements.txt`.
-# AI Social Media Automation Agent (Enterprise Edition) - GTNIC 2026
+Autonomous multi-agent: Enterprise Profile → Research → Strategy (kalender 7 hari) → Produksi (Carousel / Single Image / Reels)
+→ QC → Approval → Publish Instagram → Analytics → Feedback Loop.
 
-Platform otomasi konten media sosial berbasis **Autonomous Multi-Agent Architecture** untuk industri dan enterprise di Indonesia dengan jaminan konten profesional ("No-AI-Slop").
-
-## Struktur Repositori
-
-Proyek ini menggunakan struktur monorepo terpisah antara Backend AI Agent dan Frontend Web:
-
-- **`backend/`**: Pipeline AI Agent (Research, Planning, Composition, Guardrail Quality Control, Direct Publishing, Event Cost Tracking).
-- **`frontend/`**: Antarmuka web pengguna / Live Dashboard interaktif.
-
-##  Setup Cepat
-
-### Backend
-Lihat panduan lengkap di [backend/SPEC.md](backend/SPEC.md).
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Frontend
-Lihat panduan di [frontend/README.md](frontend/README.md).
-```bash
-cd frontend
-# Install dependency & jalankan dev server
-```
+- `backend/` FastAPI + pipeline agent. Setup: `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && playwright install chromium`
+  lalu salin `.env.example` ke `.env` dan isi kunci (GROQ, TAVILY, IG_*, CLOUDINARY_*, GTNIC_API_KEY).
+- `frontend/` React dashboard (`npm ci && npm run dev`).
+- Jalankan: `uvicorn src.api:app --reload` (set `SCHEDULER_ENABLED=true` untuk autopilot: riset harian, strategi mingguan,
+  produksi otomatis item yang sudah disetujui, publish terjadwal, tarik analytics).
+- Endpoint baru: `GET /api/v1/approvals`, `/api/v1/integrations`, `/api/v1/agents`. Header opsional `X-User-Name` mencatat siapa yang menyetujui.
+- `rembg` opsional: lihat `backend/requirements-image-processing.txt`.

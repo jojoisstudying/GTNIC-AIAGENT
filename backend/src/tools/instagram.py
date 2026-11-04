@@ -116,7 +116,7 @@ def get_media_metrics(media_id: str, *, ctx=None) -> dict:
 def get_media_insights(media_id: str, *, ctx=None) -> dict:
     """Ambil insight per media. Metrik yang tidak tersedia untuk tipe media dilewati (tetap NULL)."""
     out: dict = {}
-    for metric in ("reach", "saved", "shares", "views", "total_interactions", "profile_visits"):
+    for metric in ("reach", "saved", "shares", "views", "total_interactions", "profile_visits", "follows"):
         try:
             data = _get(f"{media_id}/insights", ctx=ctx, metric=metric)
             vals = data.get("data") or []

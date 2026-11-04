@@ -22,6 +22,7 @@ def fetch_instagram_metrics(media_id: str) -> dict:
         "likes": basic.get("like_count"), "comments": basic.get("comments_count"),
         "reach": ins.get("reach"), "saves": ins.get("saved"), "shares": ins.get("shares"),
         "impressions": ins.get("views"), "profile_visits": ins.get("profile_visits"),
+        "follower_delta": ins.get("follows"), "link_clicks": None,  # link_clicks tidak disediakan API media insight
         "permalink": basic.get("permalink"),
     }
 

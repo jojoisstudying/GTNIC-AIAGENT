@@ -182,7 +182,7 @@ class ContentStrategyItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_date: Mapped[str] = mapped_column(String(32), nullable=False)
     topic: Mapped[str] = mapped_column(Text, nullable=False)
-    format: Mapped[str] = mapped_column(String(32), nullable=False, default="carousel")  # carousel | video
+    format: Mapped[str] = mapped_column(String(32), nullable=False, default="carousel")  # carousel | single_image | video
     content_pillar: Mapped[str] = mapped_column(String(128), nullable=False)
     objective: Mapped[str] = mapped_column(String(128), nullable=False)
     target_segment: Mapped[str] = mapped_column(String(128), nullable=False, default="Umum")
@@ -222,11 +222,40 @@ class PostAnalytics(Base):
     shares: Mapped[int | None] = mapped_column(Integer)
     saves: Mapped[int | None] = mapped_column(Integer)
     profile_visits: Mapped[int | None] = mapped_column(Integer)
+    follower_delta: Mapped[int | None] = mapped_column(Integer)   # 'follows' per-media; NULL = tidak tersedia
+    link_clicks: Mapped[int | None] = mapped_column(Integer)      # NULL = tidak tersedia dari API
+    engagement_rate: Mapped[float | None] = mapped_column(Float)  # (likes+comments+saves+shares)/reach*100
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="instagram_api")
     is_simulated: Mapped[bool] = mapped_column(nullable=False, default=False)
     ingestion_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     data_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class Approval(Base):
+    """Jejak persetujuan: siapa memutuskan apa, kapan, dan atas entitas mana."""
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, default="strategy_item")
+    entity_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)  # approved|rejected|scheduled|auto_approved
+    actor: Mapped[str] = mapped_column(String(64), nullable=False, default="api_user")
+    actor_type: Mapped[str] = mapped_column(String(16), nullable=False, default="human")  # human|policy
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class EnterpriseIntegration(Base):
+    """Status koneksi integrasi eksternal (tanpa menyimpan rahasia)."""
+    __tablename__ = "enterprise_integrations"
+
+    provider: Mapped[str] = mapped_column(String(48), primary_key=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="not_configured")  # connected|not_configured|expired
+    detail: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class SchedulerLock(Base):
@@ -335,6 +364,37 @@ def ensure_schema(bind) -> None:
                     conn.execute(text(f'UPDATE "{table.name}" SET "{col.name}" = CURRENT_TIMESTAMP '
                                       f'WHERE "{col.name}" IS NULL'))
                 log.warning("Skema disinkronkan: kolom %s.%s ditambahkan", table.name, col.name)
+    _relax_not_null_sqlite(bind, log)
+
+
+def _relax_not_null_sqlite(bind, log) -> None:
+    """DB SQLite lama bisa punya kolom NOT NULL yang kini nullable di model (mis. post_analytics.reach, di mana NULL
+    berarti 'metrik belum ditarik'). SQLite tak bisa ALTER COLUMN, jadi tabel dibangun ulang dengan data utuh.
+    Tabel yang direferensikan FK tabel lain dilewati demi keamanan."""
+    if bind.dialect.name != "sqlite":
+        return
+    insp = inspect(bind)
+    referenced = {fk["referred_table"] for t in insp.get_table_names() for fk in insp.get_foreign_keys(t)}
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name) or table.name in referenced:
+            continue
+        db_cols = {c["name"]: c for c in insp.get_columns(table.name)}
+        stale = [c.name for c in table.columns
+                 if c.nullable and not c.primary_key and c.name in db_cols and not db_cols[c.name]["nullable"]]
+        if not stale:
+            continue
+        old = f"{table.name}__old"
+        common = [c.name for c in table.columns if c.name in db_cols]
+        cols = ", ".join(f'"{c}"' for c in common)
+        with bind.begin() as conn:
+            conn.execute(text(f'ALTER TABLE "{table.name}" RENAME TO "{old}"'))
+            for (idx,) in conn.execute(text(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=:t AND sql IS NOT NULL"), {"t": old}).all():
+                conn.execute(text(f'DROP INDEX IF EXISTS "{idx}"'))
+            table.create(conn)
+            conn.execute(text(f'INSERT INTO "{table.name}" ({cols}) SELECT {cols} FROM "{old}"'))
+            conn.execute(text(f'DROP TABLE "{old}"'))
+        log.warning("Skema disinkronkan: %s dibangun ulang, kolom kini nullable: %s", table.name, ", ".join(stale))
 
 
 def ingest_publication_metrics(session, publication: Publication, metrics: dict[str, Any], *,
@@ -353,9 +413,15 @@ def ingest_publication_metrics(session, publication: Publication, metrics: dict[
         )
         session.add(row)
     metric_fields = ("reach", "impressions", "likes", "comments", "shares", "saves", "profile_visits")
-    for field in metric_fields:
+    for field in metric_fields + ("follower_delta", "link_clicks"):
         value = metrics.get(field)
         setattr(row, field, int(value) if value is not None else None)
+    eng = metrics.get("engagement_rate")
+    if eng is None and row.reach:  # hitung hanya bila reach nyata tersedia; jangan menebak
+        parts = [getattr(row, k) for k in ("likes", "comments", "saves", "shares")]
+        if any(p is not None for p in parts):
+            eng = round(sum(p or 0 for p in parts) / row.reach * 100, 2)
+    row.engagement_rate = float(eng) if eng is not None else None
     row.source = source
     row.is_simulated = bool(metrics.get("is_simulated", False))
     row.ingestion_status = "complete" if any(metrics.get(k) is not None for k in metric_fields) else "pending"

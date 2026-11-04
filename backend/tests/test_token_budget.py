@@ -279,8 +279,11 @@ def _big_research() -> dict:
     }
 
 
-def test_planner_fit_meets_budget_and_keeps_layout_catalog():
+def test_planner_fit_meets_budget_and_keeps_layout_catalog(monkeypatch):
     """Prompt yang sudah dirapikan MUST fit: total request (prompt+output) <= TPM."""
+    # Hermetik: .env lokal dengan LLM_TPM_LIMIT=0 (tanpa batas) tidak boleh mengubah hasil test.
+    monkeypatch.setenv("LLM_TPM_LIMIT", "8000")
+    monkeypatch.delenv("LLM_TPM_LIMITS", raising=False)
     from src.carousel.agents import planner as P
     cfg = P._prompt_budget_cfg(P._layout_catalog_prompt())
     budget = max(512, cfg["max_prompt_tokens"] - 400)

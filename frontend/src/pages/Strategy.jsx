@@ -254,7 +254,19 @@ export default function Strategy({ items = [], loading, onRegenerate, onStatusCh
                             </Button>
                           )}
 
-                          {!NEEDS_ACTION.has(item.status) && !READY.has(item.status) && (
+                          {item.status === 'generation_failed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              icon={Sparkles}
+                              loading={itemBusy}
+                              onClick={() => handleStatus(item, 'approved')}
+                            >
+                              Coba lagi
+                            </Button>
+                          )}
+
+                          {!NEEDS_ACTION.has(item.status) && !READY.has(item.status) && item.status !== 'generation_failed' && (
                             <span className="text-xs text-ink-subtle">Tidak ada aksi tersedia</span>
                           )}
                         </div>

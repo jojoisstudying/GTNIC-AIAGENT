@@ -159,15 +159,19 @@ export default function ContentPreview({
   const carouselPub = publishResult || runData?.publication;
   const carouselPublished = carouselPub?.status === 'published';
 
+  // Siap diposting: status 'ok', atau 'awaiting_approval' tanpa pose yang menunggu review.
+  // Gerbang sebenarnya (QC, persetujuan item kalender, pose pending) ditegakkan backend.
+  const readyToPublish =
+    runData?.status === 'ok' || (runData?.status === 'awaiting_approval' && pendingItems.length === 0);
   const canPublishReel =
-    runData?.status === 'ok' && video?.ok && !reelPublished && videoCaption.trim().length > 0 && !captionTooLong && !publishing;
-  const canPublishCarousel = runData?.status === 'ok' && !carouselPublished && !publishing;
+    readyToPublish && video?.ok && !reelPublished && videoCaption.trim().length > 0 && !captionTooLong && !publishing;
+  const canPublishCarousel = readyToPublish && !carouselPublished && !publishing;
 
   const pubMeta = publicationMeta(carouselPub?.status);
   const statusMeta = runData ? runStatusMeta(runData.status) : null;
 
   const slide = slides[currentSlideIndex];
-  const progressPct = runData?.status === 'ok' ? 100 : runData?.status === 'running' ? 65 : 30;
+  const progressPct = readyToPublish ? 100 : runData?.status === 'running' ? 65 : 30;
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -448,7 +452,7 @@ export default function ContentPreview({
                 title={
                   carouselPublished
                     ? 'Konten ini sudah diposting'
-                    : runData.status !== 'ok'
+                    : !readyToPublish
                       ? 'Konten harus selesai diproses terlebih dahulu'
                       : undefined
                 }
@@ -457,7 +461,7 @@ export default function ContentPreview({
               </Button>
             )}
           </div>
-          {!isReel && runData.status === 'ok' && !carouselPublished && (
+          {!isReel && readyToPublish && !carouselPublished && (
             <p className="mt-1.5 text-[11px] text-ink-muted">
               Caption yang dipakai adalah draf di atas. Periksa kembali sebelum memposting.
             </p>

@@ -8,7 +8,8 @@ const API_KEY_STORAGE = 'gtnic-api-key';
 
 const protectedHeaders = (headers = {}) => {
   const key = window.localStorage.getItem(API_KEY_STORAGE);
-  return { ...headers, ...(key ? { 'X-API-Key': key } : {}) };
+  const user = window.localStorage.getItem('gtnic_user_name');
+  return { ...headers, ...(key ? { 'X-API-Key': key } : {}), ...(user ? { 'X-User-Name': user } : {}) };
 };
 
 const readError = async (res, fallback) => {

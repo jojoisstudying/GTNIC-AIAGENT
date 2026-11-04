@@ -32,7 +32,8 @@ from src.core.strategy import (
 )
 
 from src.core.context import create_run_context
-from src.core.db import Campaign, Run, Plan, Design, Event, Publication, SessionLocal
+from src.core.db import (Campaign, Run, Plan, Design, Event, Publication, SessionLocal, Approval,
+                         EnterpriseIntegration, ResearchSnapshot)
 from src.carousel.layouts import registry
 
 log = logging.getLogger("gtnic.api")
@@ -50,13 +51,21 @@ async def lifespan(_app):
         ensure_schema(engine)
     task = None
     if config.opt("SCHEDULER_ENABLED", "false").lower() == "true":
-        from src.core.scheduler import scheduler_loop
+        from src.core.scheduler import scheduler_loop, autopilot_once
         from src.core.analytics_ingest import ingest_all
         interval = int(config.opt("SCHEDULER_INTERVAL_SECONDS", "60") or 60)
         ingest_fn = (lambda: ingest_all(SessionLocal)) if config.opt("IG_USER_ID") else None
+        autopilot_fn = None
+        if config.opt("AUTOPILOT_ENABLED", "true").lower() != "false":
+            autopilot_fn = lambda: autopilot_once(  # noqa: E731
+                SessionLocal, _autopilot_produce, _autopilot_strategy, _autopilot_research,
+                lead_hours=int(config.opt("AUTOPILOT_LEAD_HOURS", "48") or 48),
+                max_concurrent=int(config.opt("AUTOPILOT_MAX_CONCURRENT", "1") or 1),
+                stale_minutes=int(config.opt("AUTOPILOT_STALE_MINUTES", "45") or 45))
         task = asyncio.create_task(scheduler_loop(
             SessionLocal, publish_run_to_instagram, interval,
-            int(config.opt("ANALYTICS_INGEST_INTERVAL_SECONDS", "21600") or 21600), ingest_fn))
+            int(config.opt("ANALYTICS_INGEST_INTERVAL_SECONDS", "21600") or 21600), ingest_fn,
+            autopilot_fn))
     try:
         yield
     finally:
@@ -231,11 +240,12 @@ def _execute_resume_task(run_id: str):
             elif design_result.get("missing_poses"):
                 run_row.status = "awaiting_assets"
             elif design_result.get("ok"):
-                run_row.status = "awaiting_approval"
+                run_row.status = "ok"  # semua pose sudah disetujui & desain lulus -> siap diposting
             else:
-                run_row.status = "ok"
+                run_row.status = "qc_failed"
             run_row.finished_at = datetime.now(timezone.utc)
-            run_row.error = None  # error lama (mis. regenerate pose gagal) sudah tidak relevan
+            # error lama (mis. regenerate pose gagal) tidak relevan; kegagalan QC dicatat agar terlihat
+            run_row.error = None if run_row.status != "qc_failed" else "QC/render desain gagal saat resume."
             run_row.tokens_in = ctx.llm.tokens_in
             run_row.tokens_out = ctx.llm.tokens_out
             run_row.cost_usd = ctx.llm.cost_usd
@@ -831,14 +841,14 @@ def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions],
             cal_item = db_session.scalars(select(ContentStrategyItem).where(
                 ContentStrategyItem.run_id == run_row.id
             )).first()
-            if not cal_item or cal_item.status not in {"approved", "approved_to_publish", "scheduled"}:
-                raise HTTPException(status_code=409, detail="Item kalender belum disetujui untuk publikasi.")
+            _gate_manual_publish(db_session, cal_item)
             prior_publication = db_session.scalars(select(Publication).where(
                 Publication.run_id == run_row.id, Publication.status.in_(["intent", "published"])
             )).first()
             if prior_publication:
                 raise HTTPException(status_code=409, detail="Run ini sudah memiliki publication berjalan atau berhasil.")
-            cal_item.status = "publishing"
+            if cal_item:
+                cal_item.status = "publishing"
             db_session.commit()
         result = publisher.publish_reel(video["video_path"], caption, share_to_feed=share_to_feed, ctx=ctx)
         is_ok = bool(result.get("media_id"))
@@ -924,10 +934,8 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
         cal_item = session.scalars(select(ContentStrategyItem).where(
             ContentStrategyItem.run_id == run_id
         )).first()
-        if not cal_item:
-            raise HTTPException(status_code=409, detail="Run tidak memiliki item kalender yang disetujui untuk publikasi.")
-        if cal_item.status not in {"approved", "approved_to_publish", "scheduled"}:
-            raise HTTPException(status_code=409, detail="Item kalender belum disetujui untuk publikasi.")
+        _gate_manual_publish(session, cal_item)
+        session.commit()
         prior_publication = session.scalars(select(Publication).where(
             Publication.run_id == run_id, Publication.status.in_(["intent", "published"])
         )).first()
@@ -958,6 +966,11 @@ def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
                 raise HTTPException(status_code=409, detail="Semantic QC gagal; publikasi diblokir.")
             if not design_row.ok:
                 raise HTTPException(status_code=409, detail="QC/render desain gagal; publikasi diblokir.")
+            if run_row.status == "awaiting_assets":
+                raise HTTPException(status_code=409, detail="Masih ada pose yang belum dibuat; publikasi diblokir.")
+            pending_ids = _pending_pose_ids()
+            if any(pr.get("id") in pending_ids for pr in (design_data.get("pending_review") or [])):
+                raise HTTPException(status_code=409, detail="Masih ada pose yang menunggu review; setujui dulu.")
 
     # Reels diproses SETELAH sesi baca ditutup: upload + pemrosesan video memakan menit, dan transaksi baca
     # yang masih terbuka bisa memicu "database is locked" di SQLite saat publisher menulis baris intent.
@@ -1479,7 +1492,7 @@ def _calendar_payload(items):
 
 
 @app.patch("/api/v1/strategy/calendar/{item_id}", dependencies=[Depends(auth.verify_api_key)])
-def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
+def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction, request: Request = None):
     """Approve, reject, reschedule, atau edit item kalender konten."""
     with SessionLocal() as session:
         item = session.get(ContentStrategyItem, item_id)
@@ -1496,7 +1509,13 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction):
                 linked_run = session.get(Run, item.run_id)
                 if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
                     raise HTTPException(status_code=409, detail="Run gagal QC/generasi; approval diblokir.")
+            if item.status == "generation_failed" and req.status in {"approved", "draft"}:
+                item.run_id = None  # coba lagi: lepaskan run gagal agar bisa/auto diproduksi ulang
             item.status = req.status
+            actor = "".join(ch for ch in ((request.headers.get("X-User-Name") if request is not None else None) or "api_user") if ch.isalnum() or ch in " ._-@")[:64] or "api_user"
+            if req.status in {"approved", "approved_to_publish", "scheduled", "rejected"}:
+                session.add(Approval(entity_type="strategy_item", entity_id=str(item.id), run_id=item.run_id,
+                                     decision=req.status, actor=actor, actor_type="human", notes=req.approval_notes))
             if req.status in {"approved", "approved_to_publish", "scheduled"}:
                 item.approved_by = "api_user"  # persetujuan manusia (dipakai kebijakan autonomi)
             if req.status == "scheduled":
@@ -1533,26 +1552,135 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
             if linked_run and linked_run.status in {"qc_failed", "failed", "generation_failed"}:
                 raise HTTPException(status_code=409, detail="Run sebelumnya gagal QC/generasi; buat run baru setelah memperbaiki konten.")
 
-        gen_topic = item.topic
-        if item.campaign_id:
-            camp = session.get(Campaign, item.campaign_id)
-            if camp and camp.status in {"active", "draft"}:
-                gen_topic = f"{item.topic} (Kampanye: {camp.name}. Pesan utama: {camp.message}. Syarat konten: {camp.content_requirements})"[:900]
-        brand = pipeline.load_brand()
-        ctx = create_run_context(gen_topic, brand)
-        run_id = ctx.run_id
-        ctx.close()
-
-        item.run_id = run_id
-        item.status = "producing"
-        session.commit()
-
+        run_id, gen_topic = _begin_item_generation(session, item)
         if item.format == "video":
             background_tasks.add_task(_execute_video_pipeline_task, run_id, gen_topic, 30, False)
         else:
             background_tasks.add_task(_execute_pipeline_task, run_id, gen_topic, False, True)
 
         return {"status": "producing", "run_id": run_id, "strategy_item_id": item.id}
+
+
+def _pending_pose_ids() -> set:
+    try:
+        from src.carousel.tools import asset_library
+        return {a["id"] for a in asset_library.pending_assets()}
+    except Exception:
+        return set()
+
+
+_PUBLISH_OK = {"approved", "approved_to_publish", "scheduled"}
+_PUBLISH_CONFIRMABLE = {"producing", "running", "awaiting_approval"}
+
+
+def _gate_manual_publish(session, cal_item) -> None:
+    """Gerbang publish MANUAL dari UI. Klik 'Posting ke Instagram' + modal konfirmasi adalah persetujuan manusia
+    yang eksplisit, jadi item yang masih menunggu keputusan disetujui otomatis (tercatat di tabel Approval).
+    Run mandiri (tanpa item kalender) boleh diposting. Item draft/ditolak/gagal tetap diblokir (409)."""
+    if cal_item is None:
+        return
+    if cal_item.status in _PUBLISH_CONFIRMABLE:
+        cal_item.status, cal_item.approved_by = "approved_to_publish", "api_user"
+        session.add(Approval(entity_type="strategy_item", entity_id=str(cal_item.id), run_id=cal_item.run_id,
+                             decision="approved_on_publish", actor="api_user", actor_type="human",
+                             notes="Disetujui lewat konfirmasi 'Posting ke Instagram'"))
+    elif cal_item.status not in _PUBLISH_OK:
+        raise HTTPException(status_code=409,
+                            detail=f"Item kalender berstatus '{cal_item.status}' dan belum bisa dipublikasikan.")
+
+
+def _begin_item_generation(session, item) -> tuple[str, str]:
+    """Siapkan run untuk item kalender (dipakai route manual DAN autopilot). Mengembalikan (run_id, topik)."""
+    gen_topic = item.topic
+    if item.campaign_id:
+        camp = session.get(Campaign, item.campaign_id)
+        if camp and camp.status in {"active", "draft"}:
+            gen_topic = f"{item.topic} (Kampanye: {camp.name}. Pesan utama: {camp.message}. Syarat konten: {camp.content_requirements})"[:900]
+    if item.format == "single_image":
+        gen_topic = f"{gen_topic} [Format wajib: single_image, tepat 1 slide dengan role single]"
+    brand = pipeline.load_brand()
+    ctx = create_run_context(gen_topic, brand)
+    run_id = ctx.run_id
+    ctx.close()
+    item.run_id = run_id
+    item.status = "producing"
+    session.commit()
+    return run_id, gen_topic
+
+
+def _autopilot_produce(item_id: int) -> None:
+    """Produksi otomatis item 'approved' di thread terpisah agar loop scheduler (publish) tidak terblokir."""
+    import threading
+    with SessionLocal() as session:
+        item = session.get(ContentStrategyItem, item_id)
+        if not item or item.status != "approved" or item.run_id:
+            return
+        fmt = item.format
+        run_id, gen_topic = _begin_item_generation(session, item)
+    target = (_execute_video_pipeline_task, (run_id, gen_topic, 30, False)) if fmt == "video" \
+        else (_execute_pipeline_task, (run_id, gen_topic, False, True))
+    threading.Thread(target=target[0], args=target[1], daemon=True, name=f"autopilot-{run_id}").start()
+
+
+def _autopilot_strategy() -> None:
+    with SessionLocal() as session:
+        generate_7day_strategy(session, reset=True)
+
+
+def _autopilot_research() -> None:
+    """Riset harian: simpan snapshot yang dipakai Strategy Agent. Gagal riset tidak mengubah data lain."""
+    from src.carousel.agents import research_agent
+    brand = pipeline.load_brand()
+    topic = f"tren konten media sosial {brand.get('industry', '')} terbaru".strip()
+    ctx = create_run_context(topic, brand)
+    try:
+        res = research_agent.run(topic, brand.get("industry", ""), ctx=ctx, brand_facts=brand.get("verified_facts"))
+        with SessionLocal() as session:
+            session.add(ResearchSnapshot(run_id=ctx.run_id, data_json=json.dumps(res.get("data"), ensure_ascii=False),
+                                         warnings_json=json.dumps(res.get("warnings", []), ensure_ascii=False),
+                                         ok=bool(res.get("ok"))))
+            run = session.get(Run, ctx.run_id)
+            if run:
+                run.status = "ok" if res.get("ok") else "failed"
+            session.commit()
+    finally:
+        ctx.close()
+
+
+@app.get("/api/v1/approvals")
+def list_approvals_endpoint(limit: int = 100):
+    """Audit trail persetujuan (siapa, kapan, keputusan)."""
+    with SessionLocal() as session:
+        rows = session.scalars(select(Approval).order_by(desc(Approval.id)).limit(max(1, min(limit, 500)))).all()
+        return [{"id": r.id, "entity_type": r.entity_type, "entity_id": r.entity_id, "run_id": r.run_id,
+                 "decision": r.decision, "actor": r.actor, "actor_type": r.actor_type, "notes": r.notes,
+                 "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+
+
+@app.get("/api/v1/integrations")
+def list_integrations_endpoint():
+    """Status koneksi provider (hanya ada/tidaknya konfigurasi; tidak pernah mengembalikan nilai rahasia)."""
+    from src.agents.registry import ADAPTERS
+    out = []
+    with SessionLocal() as session:
+        for provider, (category, required) in ADAPTERS.items():
+            missing = [k for k in required if not config.opt(k)]
+            status = "connected" if not missing else "not_configured"
+            detail = None if not missing else f"Belum diisi: {', '.join(missing)}"
+            row = session.get(EnterpriseIntegration, provider)
+            if row is None:
+                row = EnterpriseIntegration(provider=provider)
+                session.add(row)
+            row.category, row.status, row.detail, row.checked_at = category, status, detail, datetime.now(timezone.utc)
+            out.append({"provider": provider, "category": category, "status": status, "detail": detail})
+        session.commit()
+    return out
+
+
+@app.get("/api/v1/agents")
+def list_agents_endpoint():
+    from src.agents.registry import AGENTS
+    return AGENTS
 
 
 # ===========================================================================

@@ -1,0 +1,4 @@
+[lint]
+select = ["E9", "F"]
+# Kosmetik, tidak memengaruhi perilaku; rapikan bertahap setelah lomba.
+ignore = ["F401", "F841", "F541"]

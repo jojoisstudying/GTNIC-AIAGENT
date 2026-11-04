@@ -4,3 +4,5 @@ import os
 # Existing integration tests exercise endpoint workflows without credentials. Make this
 # deliberate, test-only development opt-in explicit rather than weakening app defaults.
 os.environ.setdefault("ALLOW_UNAUTHENTICATED_DEV", "true")
+# Hermetik: kunci API dari .env lokal developer tidak boleh membuat test endpoint jadi 401.
+os.environ["GTNIC_API_KEY"] = ""

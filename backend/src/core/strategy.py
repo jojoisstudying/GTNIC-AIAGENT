@@ -88,7 +88,6 @@ CALENDAR_TRANSITIONS = {
     "generation_failed": {"approved", "rejected", "draft"},
     "publishing": {"published", "publication_failed"},
     "publication_failed": {"approved_to_publish", "scheduled", "rejected"},
-    "publishing": {"published", "publication_failed"},
     "published": set(),
     "rejected": {"draft"},
 }
@@ -149,7 +148,7 @@ def _apply_research_and_campaigns(templates: list, from_llm: bool, candidates: l
         c = candidates[0]
         t = next((x for x in templates if x["offset_days"] == 3 and not x.get("campaign_id")), None)
         if t and c.get("source_urls"):  # hanya kandidat yang punya sumber terverifikasi
-            if c.get("recommended_format") in {"carousel", "video"}:
+            if c.get("recommended_format") in {"carousel", "video", "single_image"}:
                 t["format"] = c["recommended_format"]
             t.update(topic=c["topic"], research_topic=True,
                      rationale=f"Berbasis riset (relevansi {c.get('relevance_score')}): {c.get('relevance_reason', '')} "
@@ -239,7 +238,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 "Kamu adalah Social Media Director tingkat Enterprise. Tugasmu adalah membuat rencana konten "
                 "7 hari yang disesuaikan secara presisi dengan profil bisnis, target audiens, pilar konten, "
                 "dan masukan analitik terbaru. "
-                "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\", \"campaign_id\": null}]}. campaign_id diisi id kampanye aktif jika item mendukung kampanye, selain itu null"
+                "Balas HANYA dengan JSON valid format: {\"items\": [{\"offset_days\": 1, \"topic\": \"...\", \"format\": \"carousel\"|\"video\"|\"single_image\", \"pillar\": \"...\", \"objective\": \"...\", \"target_segment\": \"...\", \"slot\": \"09:00 WIB\", \"rationale\": \"...\", \"campaign_id\": null}]}. campaign_id diisi id kampanye aktif jika item mendukung kampanye, selain itu null"
             )
             insight_context = f"Terbaru Insight Analitik: '{latest_insight.title}' ({latest_insight.observation}); evidence={latest_insight.data_points_json}" if latest_insight else "Belum ada insight historis."
             insight_context += "\nKualitas dataset: " + json.dumps(analytics_context, ensure_ascii=False)
@@ -263,7 +262,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 f"Kampanye aktif: {campaigns_context}\n"
                 "Jika ada kampanye aktif, alokasikan minimal 3 dari 7 item untuk mendukungnya (isi campaign_id). "
                 "Gunakan 1-2 kandidat riset yang paling relevan bila cocok.\n\n"
-                "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel dan video Reels, "
+                "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel, single_image (1 gambar), dan video Reels, "
                 "dengan objektif yang jelas dan rationale berbasis data bisnis."
             )
             resp = client.chat(
@@ -286,7 +285,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 for item in parsed["items"]:
                     if not isinstance(item, dict) or not required.issubset(item):
                         raise ValueError("Item strategi LLM kehilangan field wajib")
-                    if item["format"] not in {"carousel", "video"} or not 1 <= int(item["offset_days"]) <= 7:
+                    if item["format"] not in {"carousel", "video", "single_image"} or not 1 <= int(item["offset_days"]) <= 7:
                         raise ValueError("Format atau offset_days strategi LLM tidak valid")
                     if any(not str(item[field]).strip() for field in required - {"offset_days"}):
                         raise ValueError("Field teks strategi LLM tidak boleh kosong")
