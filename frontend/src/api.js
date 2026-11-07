@@ -266,6 +266,138 @@ export const api = {
     return res.json();
   },
 
+  // ---- Alur persetujuan publikasi (Pusat Otomatisasi & preview konten) ----
+  // Siapkan draf publikasi untuk sebuah run. Backend TIDAK memanggil Instagram di sini.
+  preparePublication: async (runId, options = {}) => {
+    const res = await request(`/api/v1/runs/${runId}/publication`, {
+      method: 'POST',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menyiapkan draf publikasi');
+    return res.json();
+  },
+
+  getRunPublication: async (runId) => {
+    const res = await request(`/api/v1/runs/${runId}/publication`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil status publikasi');
+    return res.json();
+  },
+
+  // Edit caption/hashtag/gambar/jadwal sebelum disetujui.
+  updatePublication: async (pubId, patch) => {
+    const res = await request(`/api/v1/publications/${pubId}`, {
+      method: 'PATCH',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menyimpan perubahan konten');
+    return res.json();
+  },
+
+  // Setujui & Publikasikan (idempoten di backend; aman bila tombol terklik dua kali).
+  approvePublication: async (pubId, options = {}) => {
+    const res = await request(`/api/v1/publications/${pubId}/approve`, {
+      method: 'POST',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menyetujui publikasi');
+    return res.json();
+  },
+
+  publishPublication: async (pubId) => {
+    const res = await request(`/api/v1/publications/${pubId}/publish`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal mempublikasikan konten');
+    return res.json();
+  },
+
+  cancelPublication: async (pubId) => {
+    const res = await request(`/api/v1/publications/${pubId}/cancel`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal membatalkan publikasi');
+    return res.json();
+  },
+
+  getPublications: async ({ status, limit = 50 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status) params.set('status', status);
+    const res = await request(`/api/v1/publications?${params}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil daftar publikasi');
+    return res.json();
+  },
+
+  // Batalkan generasi konten yang sedang berjalan (tidak menyimpan hasil yang dibatalkan).
+  cancelRun: async (runId) => {
+    const res = await request(`/api/v1/runs/${runId}/cancel`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal membatalkan proses pembuatan konten');
+    return res.json();
+  },
+
+  // ---- Pusat Otomatisasi ----
+  getAutomation: async () => {
+    const res = await request('/api/v1/automation');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil pengaturan otomatisasi');
+    return res.json();
+  },
+
+  updateAutomation: async (patch) => {
+    const res = await request('/api/v1/automation', {
+      method: 'PUT',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menyimpan pengaturan otomatisasi');
+    return res.json();
+  },
+
+  automationControl: async (action) => {
+    const res = await request(`/api/v1/automation/${action}`, {
+      method: 'POST',
+      headers: protectedHeaders(),
+    });
+    if (!res.ok) throw await readError(res, `Gagal menjalankan ${action}`);
+    return res.json();
+  },
+
+  // ---- Analytics per konten ----
+  getAnalyticsPublications: async () => {
+    const res = await request('/api/v1/analytics/publications');
+    if (!res.ok) throw await readError(res, 'Gagal mengambil daftar konten terpantau');
+    return res.json();
+  },
+
+  getPublicationAnalytics: async (pubId) => {
+    const res = await request(`/api/v1/analytics/publications/${pubId}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil metrik konten');
+    return res.json();
+  },
+
+  ingestMetrics: async (publicationId = null) => {
+    const res = await request('/api/v1/analytics/publications/ingest', {
+      method: 'POST',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(publicationId ? { publication_id: publicationId } : {}),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal mengambil metrik dari Instagram');
+    return res.json();
+  },
+
+  // ---- Diagnostik integrasi Instagram ----
+  getInstagramStatus: async () => {
+    const res = await request('/api/v1/integrations/instagram/status');
+    if (!res.ok) throw await readError(res, 'Gagal memeriksa koneksi Instagram');
+    return res.json();
+  },
+
   getHealth: async () => {
     const res = await request('/api/v1/health');
     if (!res.ok) throw await readError(res, 'Backend tidak merespons');

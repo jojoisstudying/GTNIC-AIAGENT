@@ -102,6 +102,35 @@ export const publicationMeta = (status) => {
   return { label: status || 'Belum dipublikasikan', tone: 'neutral' };
 };
 
+// ---------- Status alur persetujuan publikasi ----------
+// Sumber label: backend (status_label), tetapi UI perlu tone warna & ikon yang konsisten.
+export const PUBLICATION_STATUS = {
+  pending_approval: { label: 'Menunggu persetujuan', tone: 'warning', icon: 'clock' },
+  scheduled: { label: 'Dijadwalkan', tone: 'brand', icon: 'calendar' },
+  publishing: { label: 'Sedang dipublikasikan', tone: 'brand', icon: 'loader' },
+  intent: { label: 'Status belum pasti', tone: 'warning', icon: 'alert' },
+  published: { label: 'Berhasil', tone: 'success', icon: 'check' },
+  failed: { label: 'Gagal', tone: 'danger', icon: 'x' },
+  cancelled: { label: 'Dibatalkan', tone: 'neutral', icon: 'ban' },
+};
+
+export const publicationStatusMeta = (status) =>
+  PUBLICATION_STATUS[status] || {
+    label: status ? String(status).replace(/_/g, ' ') : 'Tidak diketahui',
+    tone: 'neutral',
+    icon: 'info',
+  };
+
+// Status otomatisasi (Pusat Otomatisasi)
+export const AUTOMATION_STATE = {
+  running: { label: 'Berjalan', tone: 'success' },
+  paused: { label: 'Dijeda', tone: 'warning' },
+  stopped: { label: 'Dihentikan', tone: 'neutral' },
+};
+
+export const automationStateMeta = (state) =>
+  AUTOMATION_STATE[state] || { label: state || 'Tidak diketahui', tone: 'neutral' };
+
 // ---------- Label ramah untuk event pipeline ----------
 const STEP_LABELS = {
   research: 'Riset fakta & tren',

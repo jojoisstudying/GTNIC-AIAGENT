@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bot,
   Building2,
   CalendarDays,
   History,
@@ -21,6 +22,7 @@ export const NAV_GROUPS = [
     label: 'Konten',
     items: [
       { key: 'generator', label: 'Buat Konten', icon: Sparkles, hint: 'AI carousel & video' },
+      { key: 'automation', label: 'Pusat Otomatisasi', icon: Bot, badge: 'pendingApprovals' },
       { key: 'runs', label: 'Riwayat Konten', icon: History, badge: 'pendingRuns' },
       { key: 'strategy', label: 'Kalender Strategi', icon: CalendarDays },
       { key: 'assets', label: 'Asset Library', icon: ImageIcon, badge: 'pendingAssets' },
@@ -72,6 +74,10 @@ export const PAGE_META = {
   analytics: {
     title: 'Analitik',
     description: 'Ukur performa konten dan lihat rekomendasi untuk konten berikutnya.',
+  },
+  automation: {
+    title: 'Pusat Otomatisasi',
+    description: 'Kendalikan seluruh aktivitas marketing otomatis: jadwal, platform, jenis konten, dan persetujuan.',
   },
   social: {
     title: 'Koneksi Sosial',
