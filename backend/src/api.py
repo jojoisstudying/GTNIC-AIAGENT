@@ -1374,6 +1374,7 @@ def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
 
 class StrategyItemAction(BaseModel):
     status: Optional[str] = None
+    topic: Optional[str] = None
     plan_date: Optional[str] = None
     scheduled_slot: Optional[str] = None
     approval_notes: Optional[str] = None
@@ -1461,6 +1462,13 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction, request
 
         if req.plan_date:
             item.plan_date = req.plan_date
+        if req.topic is not None:
+            new_topic = req.topic.strip()
+            if len(new_topic) < 10:
+                raise HTTPException(status_code=400, detail="Topik minimal 10 karakter agar AI punya cukup konteks.")
+            if item.status in {"published", "publishing"}:
+                raise HTTPException(status_code=409, detail="Konten yang sudah/ sedang tayang tidak bisa diubah topiknya.")
+            item.topic = new_topic[:500]
         if req.scheduled_slot:
             item.scheduled_slot = req.scheduled_slot
         if req.approval_notes is not None:

@@ -32,17 +32,17 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from src import config
 from src.core import auth, automation, publication_service as ps
-from src.core.db import (ContentStrategyItem, PostAnalytics, PostAnalyticsSnapshot, Publication, Run,
-                         SessionLocal)
+from src.core.db import (Approval, ContentStrategyItem, Event, PostAnalytics, PostAnalyticsSnapshot,
+                         Publication, Run, SessionLocal, utc_now)
 from src.core.publication_service import PublicationError
 
 log = logging.getLogger("gtnic.automation_api")
@@ -385,6 +385,94 @@ def get_publication(pub_id: int):
         return _publication_payload(session, pub)
 
 
+class ApproveAllRequest(BaseModel):
+    publications: bool = Field(True, description="Setujui draf publikasi yang menunggu persetujuan")
+    calendar: bool = Field(True, description="Setujui ide kalender yang masih draf/menunggu")
+    schedule_missing: bool = Field(True, description="Beri jadwal otomatis pada publikasi yang belum punya jadwal")
+
+
+def _schedule_target(session, pub: Publication) -> datetime | None:
+    """Waktu tayang untuk publikasi tanpa jadwal: slot item kalender, lalu slot berikutnya."""
+    item = session.get(ContentStrategyItem, pub.strategy_item_id) if pub.strategy_item_id else None
+    if item is None and pub.run_id:
+        item = _strategy_item_for_run(session, pub.run_id)
+    if item is not None and item.plan_date and item.scheduled_slot:
+        from src.core.scheduler import parse_due
+        due = parse_due(item.plan_date, item.scheduled_slot)
+        if due is not None:
+            return due
+    return automation.next_slot_after(session)
+
+
+@router.post("/publications/approve-all", dependencies=[Depends(auth.verify_api_key)])
+def approve_all(request: Request, req: Optional[ApproveAllRequest] = None):
+    """Setujui SEMUA konten minggu ini sekaligus — tanpa memanggil API Meta sama sekali.
+
+    - Draf publikasi -> disetujui + dijadwalkan (TIDAK tayang langsung; scheduler yang menayangkan).
+    - Ide kalender (draft / awaiting_approval / generation_failed) -> ``approved`` (siap diproduksi).
+    Idempoten: menjalankan ulang tidak menyetujui apa pun lagi.
+    """
+    req = req or ApproveAllRequest()
+    actor = _actor(request)
+    approved_pubs = approved_items = 0
+    skipped: list[dict] = []
+    errors: list[dict] = []
+
+    with SessionLocal() as session:
+        if req.publications:
+            pubs = session.scalars(select(Publication).where(
+                Publication.status.in_(tuple(_BATCH_PUB_STATUSES)))).all()
+            for pub in pubs:
+                if pub.media_id:
+                    skipped.append({"kind": "publication", "ref_id": pub.id,
+                                    "reason": "sudah punya media_id (sudah tayang)"})
+                    continue
+                try:
+                    if req.schedule_missing and pub.scheduled_for is None:
+                        target = _schedule_target(session, pub)
+                        if target is not None:
+                            pub.scheduled_for = target
+                            session.commit()
+                    ps.approve(session, pub, actor=actor, publish_now=False)
+                    approved_pubs += 1
+                except PublicationError as exc:
+                    session.rollback()
+                    errors.append({"kind": "publication", "ref_id": pub.id, "error": str(exc)})
+
+        if req.calendar:
+            from src.core.strategy import CALENDAR_TRANSITIONS
+            items = session.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.status.in_(tuple(_BATCH_ITEM_STATUSES)))).all()
+            for item in items:
+                if "approved" not in CALENDAR_TRANSITIONS.get(item.status, set()):
+                    skipped.append({"kind": "calendar", "ref_id": item.id,
+                                    "reason": f"status '{item.status}' tidak bisa disetujui"})
+                    continue
+                if item.status == "generation_failed":
+                    item.run_id = None  # lepaskan run gagal agar bisa diproduksi ulang
+                item.status = "approved"
+                item.approved_by = actor
+                item.approval_notes = None
+                item.updated_at = utc_now()
+                session.add(Approval(entity_type="strategy_item", entity_id=str(item.id),
+                                     run_id=item.run_id, decision="approved", actor=actor,
+                                     actor_type="human", notes="Setujui semua (batch)"))
+                approved_items += 1
+            session.commit()
+
+        automation.log_event(
+            session, kind="approval", action="approved_all", status="ok",
+            message=f"Setujui semua: {approved_pubs} publikasi + {approved_items} ide konten",
+            actor=actor,
+            detail={"publications": approved_pubs, "calendar_items": approved_items,
+                    "skipped": len(skipped), "errors": len(errors)})
+        payload = _automation_payload(session)
+
+    return {"ok": True, "approved_publications": approved_pubs,
+            "approved_calendar_items": approved_items,
+            "skipped": skipped, "errors": errors, **payload}
+
+
 def _topic_label(session, pub: Publication | None) -> str:
     if pub is None:
         return "-"
@@ -393,6 +481,216 @@ def _topic_label(session, pub: Publication | None) -> str:
         return item.topic[:120]
     run = session.get(Run, pub.run_id) if pub.run_id else None
     return (run.topic if run else "")[:120] or f"#{pub.id}"
+
+
+# ---------------------------------------------------------------------------
+# Ringkasan minggu (kalender + publikasi) & status pipeline live
+# ---------------------------------------------------------------------------
+
+# Status yang dipakai UI. Nilai internal kalender/publikasi dipetakan ke satu
+# kosakata agar tabel minggu mudah dibaca orang non-teknis.
+WEEK_STATUS = {
+    "needs_approval": ("Perlu disetujui", "warning"),
+    "draft": ("Draf", "neutral"),
+    "ready": ("Siap dibuat", "brand"),
+    "scheduled": ("Terjadwal", "brand"),
+    "publishing": ("Sedang diproses", "brand"),
+    "published": ("Sudah tayang", "success"),
+    "failed": ("Gagal", "danger"),
+    "cancelled": ("Dibatalkan", "neutral"),
+    "rejected": ("Ditolak", "neutral"),
+}
+
+_PUB_STATUS_MAP = {
+    ps.PENDING_APPROVAL: "needs_approval",
+    ps.SCHEDULED: "scheduled",
+    ps.PUBLISHING: "publishing",
+    ps.INTENT: "publishing",
+    ps.PUBLISHED: "published",
+    ps.FAILED: "failed",
+    ps.CANCELLED: "cancelled",
+}
+
+_ITEM_STATUS_MAP = {
+    "draft": "draft",
+    "awaiting_approval": "needs_approval",
+    "approved": "ready",
+    "approved_to_publish": "ready",
+    "producing": "publishing",
+    "scheduled": "scheduled",
+    "publishing": "publishing",
+    "published": "published",
+    "generation_failed": "failed",
+    "publication_failed": "failed",
+    "rejected": "rejected",
+}
+
+# Item kalender yang masih boleh disetujui lewat "Setujui Semua".
+_BATCH_ITEM_STATUSES = {"draft", "awaiting_approval", "generation_failed"}
+# Publikasi yang masih boleh disetujui (belum pernah memanggil API Meta dengan sukses).
+_BATCH_PUB_STATUSES = {ps.PENDING_APPROVAL, ps.FAILED}
+
+
+def _iso(value) -> str | None:
+    if value is None:
+        return None
+    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware.isoformat()
+
+
+def _week_row(*, kind: str, ref_id: int, topic: str, fmt: str, status_key: str, date: str | None,
+              slot: str | None, when: str | None, **extra) -> dict:
+    label, tone = WEEK_STATUS.get(status_key, (status_key, "neutral"))
+    row = {
+        "kind": kind,
+        "ref_id": ref_id,
+        "publication_id": extra.pop("publication_id", None),
+        "item_id": extra.pop("item_id", None),
+        "run_id": extra.pop("run_id", None),
+        "topic": topic or "",
+        "format": fmt or "carousel",
+        "status": status_key,
+        "status_label": label,
+        "status_tone": tone,
+        "date": date,
+        "slot": slot,
+        "when": when,
+        "can_approve": extra.pop("can_approve", False),
+        "can_cancel": extra.pop("can_cancel", False),
+        "can_publish": extra.pop("can_publish", False),
+        "permalink": extra.pop("permalink", None),
+        "media_id": extra.pop("media_id", None),
+        "error": extra.pop("error", None),
+        "scheduled_for": extra.pop("scheduled_for", None),
+        "publish_attempts": extra.pop("publish_attempts", 0),
+    }
+    row.update(extra)
+    return row
+
+
+def _slot_hm(raw: str | None) -> str | None:
+    """'09:00 WIB' -> '09:00' (label zona tidak ikut ditampilkan di tabel)."""
+    if not raw:
+        return None
+    return str(raw).strip().split()[0]
+
+
+def week_overview(session, *, days: int = 7) -> list[dict]:
+    """Daftar konten minggu ini: publikasi (yang sudah punya baris) + item kalender.
+
+    Satu konten tidak tampil dua kali: item kalender dilewati bila run/item-nya sudah
+    punya baris publikasi. Urut berdasarkan waktu tayang/jadwal.
+    """
+    pubs = session.scalars(select(Publication).order_by(Publication.id.asc())).all()
+
+    covered_runs: set[str] = set()
+    covered_items: set[int] = set()
+    rows: list[dict] = []
+
+    for pub in pubs:
+        if pub.run_id:
+            covered_runs.add(pub.run_id)
+        if pub.strategy_item_id:
+            covered_items.add(pub.strategy_item_id)
+        item = session.get(ContentStrategyItem, pub.strategy_item_id) if pub.strategy_item_id else None
+        if item is None and pub.run_id:
+            item = _strategy_item_for_run(session, pub.run_id)
+            if item is not None:
+                covered_items.add(item.id)
+        due = _parse_dt(pub.scheduled_for.isoformat()) if pub.scheduled_for else None
+        published = _parse_dt(pub.published_at.isoformat()) if pub.published_at else None
+        when_dt = due or published
+        rows.append(_week_row(
+            kind="publication",
+            ref_id=pub.id,
+            publication_id=pub.id,
+            item_id=item.id if item else None,
+            run_id=pub.run_id,
+            topic=(item.topic if item and item.topic else (pub.caption or "").split("\n")[0]),
+            fmt=pub.media_type or (item.format if item else "carousel"),
+            status_key=_PUB_STATUS_MAP.get(pub.status, "draft"),
+            date=when_dt.strftime("%Y-%m-%d") if when_dt else (item.plan_date if item else None),
+            slot=when_dt.strftime("%H:%M") if when_dt else _slot_hm(item.scheduled_slot if item else None),
+            when=_iso(pub.scheduled_for) or _iso(pub.published_at),
+            can_approve=pub.status in _BATCH_PUB_STATUSES and not pub.media_id,
+            can_cancel=pub.status in ps.CANCELLABLE,
+            can_publish=pub.status in (ps.PENDING_APPROVAL, ps.SCHEDULED, ps.FAILED) and not pub.media_id,
+            permalink=pub.permalink,
+            media_id=pub.media_id,
+            error=pub.error,
+            scheduled_for=_iso(pub.scheduled_for),
+            publish_attempts=pub.publish_attempts or 0,
+        ))
+
+    for item in session.scalars(select(ContentStrategyItem).order_by(ContentStrategyItem.id.asc())).all():
+        if item.id in covered_items or (item.run_id and item.run_id in covered_runs):
+            continue
+        rows.append(_week_row(
+            kind="calendar",
+            ref_id=item.id,
+            item_id=item.id,
+            run_id=item.run_id,
+            topic=item.topic,
+            fmt=item.format,
+            status_key=_ITEM_STATUS_MAP.get(item.status, "draft"),
+            date=item.plan_date,
+            slot=_slot_hm(item.scheduled_slot),
+            when=None,
+            can_approve=item.status in _BATCH_ITEM_STATUSES,
+            can_cancel=False,
+            can_publish=False,
+            error=item.last_error,
+            publish_attempts=item.publish_attempts or 0,
+            content_pillar=item.content_pillar,
+            approved_by=item.approved_by,
+        ))
+
+    rows.sort(key=lambda r: ((r.get("date") or "9999-12-31"), (r.get("slot") or "99:99"),
+                             r.get("kind") != "publication", r.get("ref_id") or 0))
+    return rows[: max(1, min(days * 20, 200))]
+
+
+def live_status(session, *, limit: int = 5, stale_minutes: int = 45) -> dict:
+    """Transparansi proses: run yang sedang jalan + publikasi yang sedang diproses.
+
+    Run berstatus 'running' yang aktivitas terakhirnya lebih lama dari ``stale_minutes``
+    dianggap macet (server restart/proses mati) dan TIDAK ditampilkan sebagai proses live —
+    kalau ditampilkan, halaman akan berbohong soal pekerjaan yang sebenarnya sudah berhenti.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+    active = []
+    stale = 0
+    rows = session.scalars(
+        select(Run).where(Run.status == "running").order_by(desc(Run.started_at)).limit(limit * 3)).all()
+    for run in rows:
+        last = session.scalars(select(Event).where(Event.run_id == run.id)
+                               .order_by(desc(Event.id)).limit(1)).first()
+        reference = _to_utc(last.ts if last else run.started_at)
+        if reference is not None and reference < cutoff:
+            stale += 1
+            continue
+        if len(active) >= limit:
+            continue
+        active.append({
+            "run_id": run.id,
+            "topic": run.topic,
+            "status": run.status,
+            "started_at": _iso(run.started_at),
+            "step": (last.step if last else None) or "pipeline",
+            "stage": (last.name if last else None) or "menyiapkan",
+            "stage_status": (last.status if last else None) or "running",
+            "last_event_at": _iso(last.ts) if last else None,
+        })
+    publishing = session.scalar(select(func.count(Publication.id)).where(
+        Publication.status.in_((ps.PUBLISHING, ps.INTENT)))) or 0
+    return {"active_runs": active, "publishing_count": int(publishing), "stale_runs": stale,
+            "idle": not active and not publishing}
+
+
+def _to_utc(value):
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -418,10 +716,22 @@ def _automation_payload(session) -> dict:
     row = automation._ensure(session)
     settings = automation.serialize_settings(row)
     nxt = automation.next_slot_after(session)
+    week = week_overview(session)
     return {
         "settings": settings,
         "summary": automation.summary(session),
         "next_slot": nxt.isoformat() if nxt else None,
+        "week": week,
+        "week_counts": {
+            "total": len(week),
+            "needs_approval": sum(1 for r in week if r["status"] == "needs_approval"),
+            "ready": sum(1 for r in week if r["status"] == "ready"),
+            "scheduled": sum(1 for r in week if r["status"] == "scheduled"),
+            "publishing": sum(1 for r in week if r["status"] == "publishing"),
+            "published": sum(1 for r in week if r["status"] == "published"),
+            "failed": sum(1 for r in week if r["status"] == "failed"),
+        },
+        "live": live_status(session),
         "pending_approvals": [_publication_payload(session, p)
                               for p in automation.pending_approvals(session)],
         "scheduled": [_publication_payload(session, p)

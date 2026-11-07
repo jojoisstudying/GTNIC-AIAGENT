@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  Ban,
   CalendarClock,
+  CalendarPlus,
   CheckCircle2,
   Clock,
   History,
@@ -12,7 +12,6 @@ import {
   Power,
   RefreshCw,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Square,
   X,
@@ -28,13 +27,11 @@ import {
   EmptyState,
   Field,
   PageHeader,
-  Pills,
-  ProgressBar,
   StatCard,
   StatusBadge,
   Switch,
 } from '../components/ui';
-import { automationStateMeta, fmtTime, publicationStatusMeta, timeAgo, truncate } from '../lib/format';
+import { automationStateMeta, fmtTime, timeAgo, truncate } from '../lib/format';
 import { cn } from '../lib/utils';
 
 const DAYS = [
@@ -61,80 +58,156 @@ const STATUS_TONE = {
   neutral: 'text-ink-muted bg-soft',
 };
 
-function PublicationRow({ pub, onApprove, onCancel, busy, showCountdown }) {
-  const meta = publicationStatusMeta(pub.status);
-  const Icon = {
-    check: CheckCircle2, clock: Clock, calendar: CalendarClock, loader: Loader2,
-    alert: AlertTriangle, x: X, ban: Ban, info: Clock,
-  }[meta.icon] || Clock;
-  const canAct = pub.can_publish || pub.can_cancel;
+const WEEKDAY = { 1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis', 5: 'Jumat', 6: 'Sabtu', 7: 'Minggu' };
+
+const STATUS_ICON = {
+  needs_approval: Clock,
+  draft: Clock,
+  ready: Sparkles,
+  scheduled: CalendarClock,
+  publishing: Loader2,
+  published: CheckCircle2,
+  failed: AlertTriangle,
+  cancelled: X,
+  rejected: X,
+};
+
+const dayNameOf = (isoDate) => {
+  if (!isoDate) return null;
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const dow = date.getUTCDay();
+  return WEEKDAY[dow === 0 ? 7 : dow];
+};
+
+const PIPELINE_STAGES = [
+  { key: 'research', label: 'Riset' },
+  { key: 'planner', label: 'Rencana' },
+  { key: 'designer', label: 'Desain' },
+  { key: 'video', label: 'Produksi' },
+  { key: 'qc', label: 'QC' },
+];
+
+// Posisi tahap dari `step` nyata di event log — bukan persentase karangan.
+const stageIndex = (step) => {
+  const i = PIPELINE_STAGES.findIndex((s) => s.key === step);
+  return i < 0 ? 0 : i;
+};
+
+/* ------------------------------------------------------------------ */
+/* Baris jadwal minggu                                                 */
+/* ------------------------------------------------------------------ */
+function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic }) {
+  const Icon = STATUS_ICON[row.status] || Clock;
+  const tone = STATUS_TONE[row.status_tone] || STATUS_TONE.neutral;
+  const day = dayNameOf(row.date);
+  const fmtLabel = { reel: 'Reels', video: 'Reels', image: 'Gambar', carousel: 'Carousel' }[row.format] || row.format;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(row.topic || '');
+  const canEditTopic = row.kind === 'calendar' && !['published', 'publishing'].includes(row.status);
+
+  const submitTopic = () => {
+    const next = draft.trim();
+    if (!next || next === row.topic) {
+      setEditing(false);
+      return;
+    }
+    onEditTopic(row, next);
+    setEditing(false);
+  };
 
   return (
-    <li className="flex flex-col gap-2.5 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
-        <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', STATUS_TONE[meta.tone])}>
-          <Icon className={cn('h-4 w-4', pub.status === 'publishing' && 'animate-spin')} aria-hidden="true" />
+        <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tone)}>
+          <Icon className={cn('h-4 w-4', row.status === 'publishing' && 'animate-spin')} aria-hidden="true" />
         </span>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold leading-snug text-ink">
-            {truncate(pub.topic || pub.caption || `Publikasi #${pub.id}`, 90)}
-          </p>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <StatusBadge meta={{ label: pub.status_label || meta.label, tone: meta.tone }} dot />
-            <Badge tone="neutral" className="bg-canvas text-[10px] uppercase">
-              {pub.media_type || pub.format || 'carousel'}
-            </Badge>
-            <Badge tone="neutral" className="bg-canvas text-[10px] uppercase">{pub.platform}</Badge>
-            {pub.scheduled_for && (
-              <span className="text-[11px] text-ink-muted">
-                Jadwal {fmtTime(pub.scheduled_for)}
-              </span>
-            )}
-            {pub.published_at && (
-              <span className="text-[11px] text-ink-muted">Tayang {timeAgo(pub.published_at)}</span>
+        <div className="min-w-0 w-full">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-ink-muted">
+            <span className="uppercase tracking-wide">
+              {day || 'Tanpa tanggal'}{row.slot ? ` · ${row.slot}` : ''}
+            </span>
+            <Badge tone="neutral" className="bg-canvas text-[10px] uppercase">{fmtLabel}</Badge>
+            <StatusBadge meta={{ label: row.status_label, tone: row.status_tone }} dot />
+            {row.publish_attempts > 0 && (
+              <span className="text-[10px] text-ink-subtle">percobaan {row.publish_attempts}</span>
             )}
           </div>
-          {pub.error && (
-            <p className="mt-1.5 line-clamp-2 break-words text-[11px] leading-relaxed text-danger-600">
-              {pub.error}
+          {editing ? (
+            <div className="mt-1 flex flex-col gap-1.5 sm:flex-row sm:items-center">
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitTopic();
+                  if (e.key === 'Escape') setEditing(false);
+                }}
+                className="input"
+                aria-label="Topik konten baru"
+              />
+              <div className="flex gap-1.5">
+                <Button size="xs" onClick={submitTopic} loading={busy === `topic-${row.ref_id}`}>Simpan</Button>
+                <Button size="xs" variant="secondary" onClick={() => setEditing(false)}>Batal</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-0.5 text-sm font-semibold leading-snug text-ink">
+              {truncate(row.topic || `Konten #${row.ref_id}`, 90)}
             </p>
           )}
-          {pub.permalink && (
-            <a
-              href={pub.permalink}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 inline-block text-[11px] font-semibold text-brand-700 hover:underline"
-            >
+          {row.error && (
+            <p className="mt-1 line-clamp-2 break-words text-[11px] leading-relaxed text-danger-600">{row.error}</p>
+          )}
+          {row.permalink && (
+            <a href={row.permalink} target="_blank" rel="noreferrer"
+              className="mt-1 inline-block text-[11px] font-semibold text-brand-700 hover:underline">
               Lihat di Instagram →
             </a>
           )}
         </div>
       </div>
 
-      {canAct && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:pt-0.5">
-          {pub.can_publish && (
-            <Button size="xs" icon={CheckCircle2} loading={busy === `approve-${pub.id}`}
-              onClick={() => onApprove(pub)}>
-              Setujui & Publikasikan
-            </Button>
-          )}
-          {pub.can_cancel && (
-            <Button size="xs" variant="secondary" icon={Ban} loading={busy === `cancel-${pub.id}`}
-              onClick={() => onCancel(pub)}>
-              Batalkan
-            </Button>
-          )}
-        </div>
-      )}
-      {showCountdown && !pub.can_publish && !pub.can_cancel && pub.status === 'published' && (
-        <span className="shrink-0 text-[11px] text-ink-subtle">Selesai</span>
-      )}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+        {row.can_approve && row.kind === 'calendar' && (
+          <Button size="xs" icon={CheckCircle2} loading={busy === `approve-item-${row.ref_id}`}
+            onClick={() => onApprove(row, 'item')}>
+            Setujui
+          </Button>
+        )}
+        {canEditTopic && !editing && (
+          <Button size="xs" variant="secondary" onClick={() => { setDraft(row.topic || ''); setEditing(true); }}>
+            Ubah topik
+          </Button>
+        )}
+        {row.can_approve && row.kind === 'publication' && (
+          <Button size="xs" icon={CheckCircle2} loading={busy === `approve-pub-${row.ref_id}`}
+            onClick={() => onApprove(row, 'publication')}>
+            Setujui &amp; Jadwalkan
+          </Button>
+        )}
+        {row.can_publish && row.publication_id && (
+          <Button size="xs" variant="secondary" icon={Instagram}
+            loading={busy === `publish-${row.publication_id}`}
+            onClick={() => onPublish(row)}>
+            Posting sekarang
+          </Button>
+        )}
+        {row.can_cancel && row.publication_id && (
+          <Button size="xs" variant="secondary" icon={X}
+            loading={busy === `cancel-${row.publication_id}`}
+            onClick={() => onCancel(row)}>
+            Batalkan
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Pengaturan minimalis (accordion)                                    */
+/* ------------------------------------------------------------------ */
 function SettingsPanel({ value, onSave, saving }) {
   const [form, setForm] = useState(value);
   useEffect(() => setForm(value), [value]);
@@ -211,19 +284,19 @@ function SettingsPanel({ value, onSave, saving }) {
 
       <Field
         label="Jam publikasi"
-        hint="Pisahkan dengan koma, format 24 jam (contoh: 09:00, 19:00). Waktu mengikuti zona waktu di bawah."
+        hint="Pisahkan dengan koma, format 24 jam (contoh: 09:00, 19:00). Waktu mengikuti zona waktu di server."
       >
         <input
           type="text"
           value={slotsText}
           onChange={(e) => update({ slots: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
           placeholder="09:00, 19:00"
-          className="input font-mono text-sm"
+          className="input"
         />
       </Field>
 
-      <Field label="Jenis konten yang dibuat otomatis">
-        <div className="flex flex-wrap gap-1.5">
+      <Field label="Jenis konten yang diproduksi">
+        <div className="flex flex-wrap gap-2">
           {FORMATS.map((f) => {
             const active = (form.content_formats || []).includes(f.value);
             return (
@@ -280,14 +353,19 @@ function SettingsPanel({ value, onSave, saving }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Halaman                                                             */
+/* ------------------------------------------------------------------ */
 export default function Automation({ onNotify, onOpenRun }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [tab, setTab] = useState('pending');
   const [showSettings, setShowSettings] = useState(false);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [approvingAll, setApprovingAll] = useState(false);
+  const [filter, setFilter] = useState('upcoming');
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -304,7 +382,7 @@ export default function Automation({ onNotify, onOpenRun }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Polling ringan: status publikasi berubah dari backend (scheduler/eksekusi manual).
+  // Polling ringan: status berubah dari backend (scheduler/eksekusi manual).
   useEffect(() => {
     const id = window.setInterval(() => load({ silent: true }), 15000);
     return () => window.clearInterval(id);
@@ -312,34 +390,74 @@ export default function Automation({ onNotify, onOpenRun }) {
 
   const settings = data?.settings;
   const summary = data?.summary;
+  const week = useMemo(() => data?.week || [], [data]);
+  const counts = data?.week_counts || {};
+  const live = data?.live || { active_runs: [], publishing_count: 0, idle: true };
   const stateMeta = automationStateMeta(settings?.state);
   const running = settings?.is_running;
+  const needsApproval = counts.needs_approval || 0;
 
-  const approve = async (pub) => {
-    setBusy(`approve-${pub.id}`);
+  const rows = useMemo(() => {
+    if (filter === 'needs_approval') return week.filter((r) => r.status === 'needs_approval');
+    if (filter === 'scheduled') return week.filter((r) => ['scheduled', 'publishing'].includes(r.status));
+    if (filter === 'published') return week.filter((r) => r.status === 'published');
+    return week.filter((r) => r.status !== 'published');
+  }, [week, filter]);
+
+  /* ---- aksi ---- */
+  const approveRow = async (row, kind) => {
+    setBusy(`approve-${kind === 'item' ? 'item' : 'pub'}-${row.ref_id}`);
     try {
-      const res = await api.approvePublication(pub.id, { publish_now: !pub.scheduled_for });
-      if (res.ok) {
-        onNotify?.('success', res.message || 'Konten disetujui dan dikirim ke Instagram.', 'Publikasi berhasil');
+      if (kind === 'item') {
+        await api.updateStrategyItem(row.ref_id, { status: 'approved' });
+        onNotify?.('success', 'Ide konten disetujui. AI akan menyiapkan kontennya sesuai jadwal.', 'Disetujui');
       } else {
-        onNotify?.('error', res.error || 'Publikasi gagal. Periksa detail pada kartu konten.', 'Publikasi gagal');
+        const res = await api.approvePublication(row.publication_id, { publish_now: false });
+        onNotify?.('success', res.message || 'Konten disetujui dan dijadwalkan.', 'Disetujui');
       }
       await load({ silent: true });
     } catch (err) {
-      onNotify?.('error', err.message, 'Gagal menyetujui publikasi');
+      onNotify?.('error', err.message, 'Gagal menyetujui');
     } finally {
       setBusy(null);
     }
   };
 
-  const cancel = async (pub) => {
-    setBusy(`cancel-${pub.id}`);
+  const editTopic = async (row, topic) => {
+    setBusy(`topic-${row.ref_id}`);
     try {
-      await api.cancelPublication(pub.id);
+      await api.updateStrategyItem(row.ref_id, { topic });
+      onNotify?.('success', 'Topik konten diperbarui.', 'Tersimpan');
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal mengubah topik');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelRow = async (row) => {
+    setBusy(`cancel-${row.publication_id}`);
+    try {
+      await api.cancelPublication(row.publication_id);
       onNotify?.('info', 'Publikasi dibatalkan. Konten tidak akan tayang.', 'Dibatalkan');
       await load({ silent: true });
     } catch (err) {
-      onNotify?.('error', err.message, 'Gagal membatalkan publikasi');
+      onNotify?.('error', err.message, 'Gagal membatalkan');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const publishRow = async (row) => {
+    setBusy(`publish-${row.publication_id}`);
+    try {
+      const res = await api.publishPublication(row.publication_id);
+      if (res.ok) onNotify?.('success', 'Konten sudah tayang di Instagram.', 'Publikasi berhasil');
+      else onNotify?.('error', res.error || 'Publikasi gagal.', 'Publikasi gagal');
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal mempublikasikan');
     } finally {
       setBusy(null);
     }
@@ -352,13 +470,69 @@ export default function Automation({ onNotify, onOpenRun }) {
       setData(res);
       onNotify?.(
         action === 'stop' ? 'warning' : 'success',
-        action === 'stop' ? 'Otomatisasi dihentikan dan jadwal yang belum tayang dibatalkan.' : `Otomatisasi ${label}.`,
+        action === 'stop'
+          ? 'Otomatisasi dihentikan dan jadwal yang belum tayang dibatalkan.'
+          : `Otomatisasi ${label}.`,
         'Pusat Otomatisasi'
       );
     } catch (err) {
       onNotify?.('error', err.message, `Gagal ${label}`);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const toggleEnabled = async (next) => {
+    setBusy('toggle');
+    try {
+      const res = await api.updateAutomation({ enabled: next });
+      setData(res);
+      onNotify?.('success', next ? 'Otomatisasi diaktifkan. AI mulai bekerja sesuai kalender.' : 'Otomatisasi dijeda.',
+        'Pusat Otomatisasi');
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal mengubah status otomatisasi');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Susun jadwal 7 hari memakai kuota LLM: minta konfirmasi dulu agar tidak tak sengaja.
+  const generateCalendar = async () => {
+    if (!window.confirm('Susun jadwal 7 hari baru? Ide konten minggu ini akan dibuat ulang oleh AI.')) return;
+    setCalendarBusy(true);
+    try {
+      await api.regenerateStrategyCalendar();
+      onNotify?.('success', 'Jadwal 7 hari sudah disusun. Tinjau idenya lalu klik Setujui Semua.', 'Jadwal dibuat');
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal menyusun jadwal');
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
+  const approveAll = async () => {
+    setApprovingAll(true);
+    try {
+      const res = await api.approveAllPublications();
+      const total = (res.approved_publications || 0) + (res.approved_calendar_items || 0);
+      if (total === 0) {
+        onNotify?.('info', 'Tidak ada konten yang perlu disetujui saat ini.', 'Tidak ada perubahan');
+      } else {
+        onNotify?.('success',
+          `${res.approved_calendar_items || 0} ide + ${res.approved_publications || 0} publikasi disetujui. `
+          + 'Konten akan dibuat dan tayang sesuai jadwal.',
+          'Setujui semua berhasil');
+      }
+      if ((res.errors || []).length) {
+        onNotify?.('warning', `${res.errors.length} konten gagal disetujui. Lihat detail di tabel.`, 'Sebagian gagal');
+      }
+      if (res.settings) setData(res);
+      else await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal menyetujui semua');
+    } finally {
+      setApprovingAll(false);
     }
   };
 
@@ -375,33 +549,11 @@ export default function Automation({ onNotify, onOpenRun }) {
     }
   };
 
-  const toggleEnabled = async (next) => {
-    setBusy('toggle');
-    try {
-      const res = await api.updateAutomation({ enabled: next });
-      setData(res);
-      onNotify?.('success', next ? 'Otomatisasi diaktifkan.' : 'Otomatisasi dinonaktifkan.', 'Pusat Otomatisasi');
-    } catch (err) {
-      onNotify?.('error', err.message, 'Gagal mengubah status otomatisasi');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const listFor = useMemo(() => {
-    if (!data) return [];
-    if (tab === 'pending') return data.pending_approvals || [];
-    if (tab === 'scheduled') return data.scheduled || [];
-    return [];
-  }, [data, tab]);
-
   if (loading && !data) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Pusat Otomatisasi" description="Memuat pengaturan dan antrian publikasi…" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => <div key={i} className="card h-28 animate-pulse" aria-hidden="true" />)}
-        </div>
+        <PageHeader title="Pusat Otomatisasi" description="Memuat pengaturan dan jadwal…" />
+        <div className="card h-36 animate-pulse" aria-hidden="true" />
         <div className="card h-64 animate-pulse" aria-hidden="true" />
       </div>
     );
@@ -425,204 +577,294 @@ export default function Automation({ onNotify, onOpenRun }) {
     <div className="space-y-4">
       <PageHeader
         title="Pusat Otomatisasi"
-        description="Semua kendali marketing otomatis dalam satu halaman. Setiap tombol terhubung langsung ke backend."
+        description="Mulai autopilot, tinjau jadwal minggu ini, dan setujui konten tanpa berpindah halaman."
         actions={
           <>
             <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => load()} loading={loading}>
               Muat ulang
             </Button>
             <Button size="sm" variant="secondary" icon={Settings2} onClick={() => setShowSettings((v) => !v)}>
-              {showSettings ? 'Tutup pengaturan' : 'Pengaturan'}
+              {showSettings ? 'Tutup aturan' : 'Aturan'}
             </Button>
           </>
         }
       />
 
-      {/* Kartu status utama */}
-      <Card className="p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
-              running ? 'bg-success-50 text-success-600' : 'bg-soft text-ink-muted')}>
-              <Power className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-base font-semibold text-ink">Status otomatisasi</p>
-                <StatusBadge meta={stateMeta} dot />
+      {/* 1. HERO / MASTER TOGGLE */}
+      <Card>
+        <div className={cn('p-5', running ? 'bg-success-50/40' : 'bg-surface')}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <span className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl',
+                running ? 'bg-success-100 text-success-700' : 'bg-soft text-ink-muted')}>
+                <Power className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-lg font-semibold text-ink">Autopilot konten</p>
+                  <StatusBadge meta={stateMeta} dot />
+                </div>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-muted">
+                  {running
+                    ? `Mode autopilot aktif: ${counts.scheduled || 0} konten terjadwal minggu ini, ${counts.published || 0} sudah tayang.`
+                    : settings?.state === 'stopped'
+                      ? 'Otomatisasi dihentikan. Publikasi terjadwal yang belum tayang sudah dibatalkan.'
+                      : 'Sistem akan otomatis meriset, mendesain, dan memposting sesuai kalender mingguan usaha Anda.'}
+                </p>
+                {data?.next_slot && (
+                  <p className="mt-1.5 text-[11px] text-ink-muted">
+                    Slot berikutnya: <strong className="text-ink">{fmtTime(data.next_slot)}</strong>
+                    {needsApproval > 0 && (
+                      <>
+                        {' · '}
+                        <span className="font-semibold text-warning-700">
+                          {needsApproval} konten menunggu persetujuan Anda
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
+                {settings && !settings.scheduler_process_enabled && (
+                  <p className="mt-1.5 text-[11px] text-warning-700">
+                    Penjadwal backend belum aktif (SCHEDULER_ENABLED=false) — konten terjadwal tidak akan tayang
+                    otomatis sampai fitur ini dinyalakan di server.
+                  </p>
+                )}
               </div>
-              <p className="mt-1 max-w-xl text-xs leading-relaxed text-ink-muted">
-                {running
-                  ? 'Otomatisasi berjalan. Konten yang dijadwalkan akan dipublikasikan sesuai jam yang Anda atur.'
-                  : settings?.state === 'stopped'
-                    ? 'Otomatisasi dihentikan. Publikasi terjadwal yang belum tayang sudah dibatalkan.'
-                    : 'Otomatisasi dijeda. Jadwal dan antrian tetap tersimpan sampai Anda melanjutkan.'}
-              </p>
-              {data?.next_slot && (
-                <p className="mt-1.5 text-[11px] text-ink-muted">
-                  Slot berikutnya: <strong className="text-ink">{fmtTime(data.next_slot)}</strong>
-                </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {!running ? (
+                <Button size="lg" variant="success" icon={Play} loading={busy === 'resume' || busy === 'toggle'}
+                  onClick={() => control('resume', 'dimulai')}>
+                  Mulai Otomatisasi 7 Hari
+                </Button>
+              ) : (
+                <Button size="lg" variant="secondary" icon={Pause} loading={busy === 'pause'}
+                  onClick={() => control('pause', 'dijeda')}>
+                  Jeda
+                </Button>
               )}
-              {settings && !settings.scheduler_process_enabled && (
-                <p className="mt-1.5 text-[11px] text-warning-700">
-                  Penjadwal backend belum aktif di server (SCHEDULER_ENABLED=false), jadi publikasi
-                  otomatis belum akan berjalan walau status di sini “Berjalan”.
-                </p>
-              )}
+              <Button size="sm" variant="danger" icon={Square} loading={busy === 'stop'}
+                disabled={settings?.state === 'stopped'}
+                onClick={() => control('stop', 'dihentikan')}>
+                Stop
+              </Button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant={running ? 'secondary' : 'success'}
-              icon={Play}
-              loading={busy === 'resume' || busy === 'toggle'}
-              disabled={running}
-              onClick={() => control('resume', 'dilanjutkan')}
-            >
-              Resume
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={Pause}
-              loading={busy === 'pause'}
-              disabled={!running}
-              onClick={() => control('pause', 'dijeda')}
-            >
-              Pause
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              icon={Square}
-              loading={busy === 'stop'}
-              disabled={settings?.state === 'stopped'}
-              onClick={() => control('stop', 'dihentikan')}
-            >
-              Stop
-            </Button>
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">Aktifkan otomatisasi</p>
+              <p className="text-xs text-ink-muted">Sakelar utama. Nonaktif = tidak ada konten yang dipublikasikan otomatis.</p>
+            </div>
+            <Switch checked={Boolean(settings?.enabled)} onChange={toggleEnabled} disabled={busy === 'toggle'}
+              label="Aktifkan otomatisasi" />
           </div>
-        </div>
-
-        <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-ink">Aktifkan otomatisasi</p>
-            <p className="text-xs text-ink-muted">Sakelar utama. Nonaktif = tidak ada konten yang dipublikasikan otomatis.</p>
-          </div>
-          <Switch checked={Boolean(settings?.enabled)} onChange={toggleEnabled} disabled={busy === 'toggle'} label="Aktifkan otomatisasi" />
         </div>
       </Card>
 
-      {/* Ringkasan angka */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
-        <StatCard label="Konten diproses" value={summary?.total_processed ?? 0} helper="Total item konten"
-          icon={Sparkles} tone="neutral" />
-        <StatCard label="Menunggu persetujuan" value={summary?.awaiting_approval ?? 0} helper="Perlu keputusan Anda"
-          icon={Clock} tone="warning" />
-        <StatCard label="Terjadwal" value={summary?.scheduled ?? 0} helper="Akan tayang otomatis"
-          icon={CalendarClock} tone="brand" />
-        <StatCard label="Berhasil" value={summary?.published ?? 0} helper="Sudah tayang di Instagram"
-          icon={CheckCircle2} tone="success" />
-        <StatCard label="Gagal" value={summary?.failed ?? 0} helper="Perlu ditinjau"
-          icon={AlertTriangle} tone="danger" />
+      {/* 2. QUICK ACTIONS */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button size="md" icon={CalendarPlus} loading={calendarBusy} onClick={generateCalendar}
+          className="w-full sm:w-auto">
+          Susun Jadwal 7 Hari
+        </Button>
+        <Button size="md" variant={needsApproval > 0 ? 'primary' : 'secondary'} icon={CheckCircle2}
+          loading={approvingAll} onClick={approveAll} className="w-full sm:w-auto">
+          Setujui Semua{needsApproval > 0 ? ` (${needsApproval})` : ''}
+        </Button>
+        <Button size="md" variant="secondary" icon={Settings2} onClick={() => setShowSettings((v) => !v)}
+          className="w-full sm:w-auto">
+          Aturan
+        </Button>
       </div>
 
-      {(summary?.publishing ?? 0) > 0 && (
-        <Alert tone="info" title={`${summary.publishing} konten sedang dipublikasikan`}>
-          Proses publikasi sedang berjalan di server. Status akan diperbarui otomatis pada halaman ini.
-          <ProgressBar value={70} className="mt-2" />
-        </Alert>
-      )}
-
-      {showSettings && settings && (
-        <Card>
-          <CardHeader title="Pengaturan otomatisasi" icon={Settings2}
-            description="Jadwal, platform, jenis konten, dan aturan persetujuan." />
-          <SettingsPanel value={settings} onSave={saveSettings} saving={savingSettings} />
-        </Card>
-      )}
-
-      {/* Antrian kerja */}
+      {/* 3. JADWAL & PERSETUJUAN */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader
-            title="Antrian publikasi"
-            description="Konten menunggu persetujuan dan yang sudah dijadwalkan."
-            icon={ShieldCheck}
+            title="Jadwal & persetujuan minggu ini"
+            description="Senin sampai Minggu: format, topik, dan status robotnya."
+            icon={CalendarClock}
             actions={
-              <Pills
-                ariaLabel="Filter antrian"
-                value={tab}
-                onChange={setTab}
-                items={[
-                  { key: 'pending', label: 'Menunggu persetujuan', count: data?.pending_approvals?.length || 0, highlight: (data?.pending_approvals?.length || 0) > 0 },
-                  { key: 'scheduled', label: 'Terjadwal', count: data?.scheduled?.length || 0 },
-                ]}
-              />
+              <div className="inline-flex flex-wrap rounded-lg border border-line bg-canvas p-0.5">
+                {[
+                  { key: 'upcoming', label: 'Aktif' },
+                  { key: 'needs_approval', label: 'Perlu disetujui' },
+                  { key: 'scheduled', label: 'Terjadwal' },
+                  { key: 'published', label: 'Tayang' },
+                ].map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setFilter(opt.key)}
+                    className={cn('rounded-md px-2.5 py-1 text-xs font-semibold transition',
+                      filter === opt.key ? 'bg-surface text-ink shadow-card' : 'text-ink-muted hover:text-ink')}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             }
           />
-          {listFor.length === 0 ? (
+          {rows.length === 0 ? (
             <div className="p-5">
               <EmptyState
-                icon={tab === 'pending' ? ShieldCheck : CalendarClock}
-                title={tab === 'pending' ? 'Tidak ada konten menunggu persetujuan' : 'Belum ada publikasi terjadwal'}
-                description={tab === 'pending'
-                  ? 'Konten baru akan muncul di sini setelah AI selesai membuatnya, dan tidak akan tayang sebelum Anda setujui.'
-                  : 'Setujui konten dengan jadwal tertentu untuk melihatnya di sini.'}
+                icon={CalendarClock}
+                title={week.length === 0 ? 'Belum ada jadwal minggu ini' : 'Tidak ada konten di filter ini'}
+                description={week.length === 0
+                  ? 'Klik "Susun Jadwal 7 Hari" — AI membuat 5–7 ide konten yang bisa Anda setujui sekaligus.'
+                  : 'Coba pilih filter lain untuk melihat konten lainnya.'}
                 className="border-0 bg-transparent"
               />
             </div>
           ) : (
             <ul className="divide-y divide-line">
-              {listFor.map((pub) => (
-                <PublicationRow
-                  key={pub.id}
-                  pub={pub}
+              {rows.map((row) => (
+                <WeekRow
+                  key={`${row.kind}-${row.ref_id}`}
+                  row={row}
                   busy={busy}
-                  onApprove={approve}
-                  onCancel={cancel}
+                  onApprove={approveRow}
+                  onCancel={cancelRow}
+                  onPublish={publishRow}
+                  onEditTopic={editTopic}
                 />
               ))}
             </ul>
           )}
         </Card>
 
-        <Card>
-          <CardHeader title="Riwayat aktivitas" icon={History} description="Jejak tindakan otomatisasi terakhir." />
-          {(data?.activity || []).length === 0 ? (
-            <div className="p-4">
-              <p className="text-xs leading-relaxed text-ink-muted">
-                Belum ada aktivitas. Setiap perubahan pengaturan, persetujuan, publikasi, dan
-                pembatalan akan tercatat di sini.
-              </p>
-            </div>
-          ) : (
-            <ul className="max-h-[26rem] divide-y divide-line overflow-y-auto">
-              {(data?.activity || []).map((event) => {
-                const tone = event.status === 'error' ? 'danger' : event.status === 'warning' ? 'warning' : 'neutral';
-                return (
-                  <li key={event.id} className="px-4 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="min-w-0 text-xs leading-relaxed text-ink">{truncate(event.message || event.action, 110)}</p>
-                      <Badge tone={tone} className="shrink-0 text-[10px]">{event.action.replace(/_/g, ' ')}</Badge>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-ink-subtle">
-                      {timeAgo(event.created_at)} · {event.actor}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
+        <div className="space-y-4">
+          {/* Ringkasan angka */}
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="Perlu disetujui" value={needsApproval} helper="Tunggu keputusan Anda"
+              icon={Clock} tone="warning" />
+            <StatCard label="Terjadwal" value={counts.scheduled ?? 0} helper="Tayang otomatis"
+              icon={CalendarClock} tone="brand" />
+            <StatCard label="Sudah tayang" value={counts.published ?? 0} helper="Ada di Instagram"
+              icon={CheckCircle2} tone="success" />
+            <StatCard label="Gagal" value={counts.failed ?? 0} helper="Perlu ditinjau"
+              icon={AlertTriangle} tone="danger" />
+          </div>
+
+          {/* Riwayat aktivitas */}
+          <Card>
+            <CardHeader title="Riwayat aktivitas" icon={History} description="Jejak tindakan terakhir." />
+            {(data?.activity || []).length === 0 ? (
+              <div className="p-4">
+                <p className="text-xs leading-relaxed text-ink-muted">
+                  Belum ada aktivitas. Setiap perubahan pengaturan, persetujuan, publikasi, dan
+                  pembatalan akan tercatat di sini.
+                </p>
+              </div>
+            ) : (
+              <ul className="max-h-[22rem] divide-y divide-line overflow-y-auto">
+                {(data?.activity || []).map((event) => {
+                  const tone = event.status === 'error' ? 'danger' : event.status === 'warning' ? 'warning' : 'neutral';
+                  return (
+                    <li key={event.id} className="px-4 py-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 text-xs leading-relaxed text-ink">
+                          {truncate(event.message || event.action, 110)}
+                        </p>
+                        <Badge tone={tone} className="shrink-0 text-[10px]">{event.action.replace(/_/g, ' ')}</Badge>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-ink-subtle">
+                        {timeAgo(event.created_at)} · {event.actor}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
 
-      {onOpenRun && (
-        <Alert tone="info" title="Ingin meninjau isi konten?">
-          Buka <strong>Riwayat Konten</strong> untuk melihat pratinjau slide, mengedit caption, dan memeriksa
-          riwayat proses AI sebelum menyetujui publikasi.
+      {/* 4. LIVE PIPELINE STATUS */}
+      <Card>
+        <CardHeader
+          title="Status proses (live)"
+          description="Apa yang sedang dikerjakan robot sekarang."
+          icon={Sparkles}
+          actions={
+            <Button size="xs" variant="secondary" icon={RefreshCw} onClick={() => load({ silent: true })}>
+              Segarkan
+            </Button>
+          }
+        />
+        <div className="p-5">
+          {live.idle ? (
+            <p className="text-sm text-ink-muted">
+              Tidak ada proses berjalan saat ini. Konten yang terjadwal akan diproses otomatis oleh penjadwal.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {(live.active_runs || []).map((run) => (
+                <li key={run.run_id} className="rounded-xl border border-line bg-canvas/60 p-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="min-w-0 text-sm font-semibold text-ink">{truncate(run.topic, 70)}</p>
+                    <div className="flex items-center gap-2">
+                      <Badge tone="brand" className="text-[10px] uppercase">{run.step}</Badge>
+                      {onOpenRun && (
+                        <Button size="xs" variant="secondary" onClick={() => onOpenRun(run.run_id)}>
+                          Lihat detail
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    {run.stage}
+                    {run.started_at && <span className="text-ink-subtle">· mulai {timeAgo(run.started_at)}</span>}
+                  </p>
+                  {/* Pelacak tahap dari step nyata di event log (bukan persentase karangan). */}
+                  <ol className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Tahap proses">
+                    {PIPELINE_STAGES.map((stage, index) => {
+                      const current = index === stageIndex(run.step);
+                      const done = index < stageIndex(run.step);
+                      return (
+                        <li
+                          key={stage.key}
+                          className={cn(
+                            'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                            current && 'bg-brand-100 text-brand-800',
+                            done && 'bg-success-50 text-success-700',
+                            !current && !done && 'bg-soft text-ink-subtle'
+                          )}
+                          aria-current={current ? 'step' : undefined}
+                        >
+                          {stage.label}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </li>
+              ))}
+              {live.publishing_count > 0 && (
+                <li className="rounded-xl border border-brand-200 bg-brand-50 p-3.5 text-sm text-brand-900">
+                  {live.publishing_count} konten sedang dipublikasikan ke Instagram.
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      </Card>
+
+      {/* Pengaturan minimalis */}
+      {showSettings && settings && (
+        <Card>
+          <CardHeader title="Aturan otomatisasi" icon={Settings2}
+            description="Jadwal, platform, jenis konten, dan aturan persetujuan." />
+          <SettingsPanel value={settings} onSave={saveSettings} saving={savingSettings} />
+        </Card>
+      )}
+
+      {summary?.queued_generation > 0 && (
+        <Alert tone="info" title={`${summary.queued_generation} konten menunggu diproduksi`}>
+          AI akan membuat konten ini sesuai urutan jadwal. Anda dapat menutup browser — proses berjalan di server.
         </Alert>
       )}
     </div>

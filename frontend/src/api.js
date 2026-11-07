@@ -329,6 +329,18 @@ export const api = {
     return res.json();
   },
 
+  // Setujui semua sekaligus: publikasi menunggu + ide kalender. TIDAK memanggil API Meta —
+  // konten hanya disetujui & dijadwalkan, scheduler yang menayangkan.
+  approveAllPublications: async (options = {}) => {
+    const res = await request('/api/v1/publications/approve-all', {
+      method: 'POST',
+      headers: protectedHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(options),
+    });
+    if (!res.ok) throw await readError(res, 'Gagal menyetujui semua konten');
+    return res.json();
+  },
+
   getPublications: async ({ status, limit = 50 } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (status) params.set('status', status);

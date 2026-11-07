@@ -510,3 +510,125 @@ def test_analytics_list_only_shows_real_published_posts(env):
     assert listed["total"] == 1
     assert listed["items"][0]["media_id"] == "IG_A"
     assert listed["items"][0]["metrics"]["available"] is False   # belum ada pengambilan metrik
+
+
+# ---------------------------------------------------------------------------
+# 6. Ringkasan minggu, batch approve, dan status live
+# ---------------------------------------------------------------------------
+
+def _req():
+    from starlette.requests import Request
+    return Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
+
+
+def test_week_overview_merges_calendar_and_publications_without_duplicates(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        s.add(ContentStrategyItem(plan_date="2026-11-10", topic="Senin pagi", format="carousel",
+                                  content_pillar="Edukasi", objective="Edukasi", target_segment="Umum",
+                                  scheduled_slot="09:00 WIB", status="draft"))
+        s.add(ContentStrategyItem(plan_date="2026-11-11", topic="Selasa video", format="video",
+                                  content_pillar="Edukasi", objective="Edukasi", target_segment="Umum",
+                                  scheduled_slot="13:00 WIB", status="awaiting_approval", run_id=run_id))
+        s.commit()
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "Caption"}, media_type="carousel",
+                                image_urls=["https://cdn.test/a.jpg"])
+        pub_id = pub.id
+
+    with factory() as s:
+        rows = automation_api.week_overview(s)
+
+    # Item kalender yang sudah punya baris publikasi tidak boleh muncul dua kali:
+    # "Selasa video" terhubung ke run yang punya publikasi, jadi hanya baris publikasi
+    # yang dipakai (bukan juga baris kalender).
+    topics = [r["topic"] for r in rows]
+    assert topics.count("Selasa video") == 1
+    selasa = [r for r in rows if r["topic"] == "Selasa video"]
+    assert selasa[0]["kind"] == "publication"
+    assert sum(1 for r in rows if r["kind"] == "publication" and r["ref_id"] == pub_id) == 1
+    # Item tanpa run tetap muncul sebagai baris kalender.
+    senin = [r for r in rows if r["topic"] == "Senin pagi"]
+    assert len(senin) == 1 and senin[0]["kind"] == "calendar"
+    # Slot ditampilkan tanpa label zona waktu.
+    assert senin[0]["slot"] == "09:00" and senin[0]["can_approve"] is True
+
+
+def test_approve_all_is_idempotent_and_never_calls_meta(env, monkeypatch):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        s.add(ContentStrategyItem(plan_date="2026-11-10", topic="Ide A", format="carousel",
+                                  content_pillar="Edukasi", objective="Edukasi", target_segment="Umum",
+                                  scheduled_slot="09:00 WIB", status="draft"))
+        s.commit()
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "Caption"}, media_type="carousel",
+                                image_urls=["https://cdn.test/a.jpg"])
+        pub_id = pub.id
+
+    calls = []
+    monkeypatch.setattr("src.tools.instagram.publish_image",
+                        lambda *a, **k: calls.append("image") or "IG")
+    monkeypatch.setattr("src.tools.instagram.publish_carousel",
+                        lambda *a, **k: calls.append("carousel") or "IG")
+
+    first = automation_api.approve_all(request=_req())
+    assert first["approved_calendar_items"] == 1
+    assert first["approved_publications"] == 1
+    assert calls == []      # batch approve TIDAK mempublikasikan apa pun
+
+    # Publikasi menjadi terjadwal (bukan published) dan punya waktu tayang.
+    with factory() as s:
+        pub = s.get(Publication, pub_id)
+        assert pub.status == ps.SCHEDULED and pub.media_id is None
+        assert pub.scheduled_for is not None
+        assert pub.approved_at is not None
+
+    second = automation_api.approve_all(request=_req())
+    assert second["approved_calendar_items"] == 0
+    assert second["approved_publications"] == 0
+    assert calls == []
+
+
+def test_live_status_ignores_stale_running_runs(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    old = datetime.now(timezone.utc) - timedelta(hours=3)
+    with factory() as s:
+        run = s.get(Run, run_id)
+        run.status = "running"
+        run.started_at = old
+        s.commit()
+
+    with factory() as s:
+        live = automation_api.live_status(s)
+    assert live["active_runs"] == []      # run macet tidak ditampilkan sebagai proses live
+    assert live["stale_runs"] == 1
+    assert live["idle"] is True
+
+
+def test_edit_calendar_topic_validates_and_blocks_published(env):
+    factory, run_id, _ = env
+    with factory() as s:
+        item = ContentStrategyItem(plan_date="2026-11-10", topic="Topik lama yang panjang", format="carousel",
+                                   content_pillar="Edukasi", objective="Edukasi", target_segment="Umum",
+                                   scheduled_slot="09:00 WIB", status="draft")
+        s.add(item)
+        s.commit()
+        item_id = item.id
+
+    res = api.update_strategy_item_endpoint(item_id, api.StrategyItemAction(topic="  Topik baru yang lebih jelas  "))
+    assert res["status"] == "ok"
+    with factory() as s:
+        assert s.get(ContentStrategyItem, item_id).topic == "Topik baru yang lebih jelas"
+
+    with pytest.raises(HTTPException) as exc:
+        api.update_strategy_item_endpoint(item_id, api.StrategyItemAction(topic="pendek"))
+    assert exc.value.status_code == 400
+
+    with factory() as s:
+        s.get(ContentStrategyItem, item_id).status = "published"
+        s.commit()
+    with pytest.raises(HTTPException) as exc:
+        api.update_strategy_item_endpoint(item_id, api.StrategyItemAction(topic="Topik lain yang cukup panjang"))
+    assert exc.value.status_code == 409
