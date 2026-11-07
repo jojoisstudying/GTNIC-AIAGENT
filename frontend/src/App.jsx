@@ -18,7 +18,7 @@ import Settings from './pages/Settings';
 
 const LAST_RUN_KEY = 'agent-sosmed:last-run-id';
 const POLL_INTERVAL_MS = 1500;
-const TERMINAL_STATUSES = ['ok', 'failed', 'awaiting_approval', 'awaiting_assets'];
+const TERMINAL_STATUSES = ['ok', 'failed', 'awaiting_approval', 'awaiting_assets', 'cancelled'];
 
 const readLastRunId = () => {
   try { return localStorage.getItem(LAST_RUN_KEY); } catch { return null; }
@@ -56,6 +56,9 @@ export default function App() {
   const [approvingAssetId, setApprovingAssetId] = useState(null);
   const [regeneratingId, setRegeneratingId] = useState(null);
   const [resumingRun, setResumingRun] = useState(false);
+  const [cancellingRun, setCancellingRun] = useState(false);
+  // AbortController membatalkan fetch/polling klien yang masih berjalan saat generasi dibatalkan.
+  const generateAbort = useRef(null);
 
   // ---------- Katalog & brand ----------
   const [brand, setBrand] = useState(null);
@@ -357,6 +360,9 @@ export default function App() {
 
   // ---------- Aksi generator ----------
   const resetRun = () => {
+    generateAbort.current?.abort();
+    generateAbort.current = null;
+    setCancellingRun(false);
     setCurrentRunId(null);
     setRunData(null);
     setEvents([]);
@@ -371,22 +377,71 @@ export default function App() {
     event.preventDefault();
     if (!topic.trim() || isRunning) return;
 
+    // Controller baru per generasi: dipakai untuk membatalkan request/polling klien.
+    const controller = new AbortController();
+    generateAbort.current = controller;
+
     setCurrentRunId(null);
     setIsRunning(true);
     setRunData(null);
     setEvents([]);
     setCurrentSlideIndex(0);
     setPublishResult(null);
+    setCancellingRun(false);
 
     try {
       const res = formatType === 'carousel'
-        ? await api.generateCarousel(topic, freshResearch)
-        : await api.generateVideo(topic, targetDuration, freshResearch);
+        ? await api.generateCarousel(topic, freshResearch, controller.signal)
+        : await api.generateVideo(topic, targetDuration, freshResearch, controller.signal);
+      if (controller.signal.aborted) return;
       setCurrentRunId(res.run_id);
       notify('info', res.message || 'Konten mulai dibuat. Hasil akan muncul otomatis.', 'Diproses AI');
     } catch (err) {
+      if (controller.signal.aborted) return;  // dibatalkan pengguna, bukan kegagalan
       notify('error', err.message, 'Gagal memulai pembuatan konten');
       setIsRunning(false);
+    }
+  };
+
+  // Batalkan generasi: backend menghentikan pipeline pada unit kerja berikutnya dan
+  // TIDAK menyimpan hasil yang dibatalkan sebagai sukses. Token provider yang sudah
+  // terpakai tidak bisa dikembalikan — itu memang batasannya, bukan kegagalan.
+  const handleCancelRun = async () => {
+    generateAbort.current?.abort();
+    generateAbort.current = null;
+    const runId = currentRunId;
+    if (!runId) {
+      // Belum ada run_id (request pembuatan masih berjalan): cukup hentikan sisi klien.
+      setIsRunning(false);
+      setRunData(null);
+      setEvents([]);
+      notify('info', 'Pembuatan konten dibatalkan. Tidak ada konten yang disimpan.', 'Dibatalkan');
+      return;
+    }
+    setCancellingRun(true);
+    try {
+      const res = await api.cancelRun(runId);
+      if (res.ok) {
+        setIsRunning(false);
+        setRunData((prev) => (prev ? { ...prev, status: 'cancelled' } : prev));
+        notify('info', 'Pembuatan konten dibatalkan. Hasil setengah jadi tidak disimpan.', 'Dibatalkan');
+      } else {
+        notify('warning', res.message || 'Run sudah selesai sehingga tidak bisa dibatalkan.', 'Tidak bisa dibatalkan');
+        setIsRunning(false);
+      }
+      try {
+        const statusRes = await api.getRunStatus(runId);
+        setRunData(statusRes);
+        const eventsRes = await api.getRunEvents(runId);
+        setEvents(eventsRes.events || []);
+      } catch (err) {
+        console.error(err);
+      }
+    } catch (err) {
+      notify('error', err.message, 'Gagal membatalkan proses');
+    } finally {
+      setCancellingRun(false);
+      setIsRunning(false);  // loading state selalu dibersihkan, apa pun hasilnya
     }
   };
 
@@ -692,6 +747,8 @@ export default function App() {
             currentRunId={currentRunId}
             onSubmit={handleGenerate}
             onReset={resetRun}
+            onCancelRun={handleCancelRun}
+            cancelling={cancellingRun}
             onPublish={handlePublish}
             publishing={publishing}
             publishResult={publishResult}

@@ -28,7 +28,10 @@ const readError = async (res, fallback) => {
 const request = async (path, options) => {
   try {
     return await fetch(`${API_BASE}${path}`, options);
-  } catch {
+  } catch (err) {
+    // AbortError bukan kegagalan koneksi: teruskan apa adanya supaya pemanggil bisa
+    // membedakan "dibatalkan pengguna" dari "backend tidak bisa dihubungi".
+    if (err?.name === 'AbortError') throw err;
     const target = API_BASE || window.location.origin;
     throw new Error(
       `Tidak bisa menghubungi backend di ${target}. Pastikan API berjalan `
@@ -66,21 +69,23 @@ export const api = {
     return res.json();
   },
 
-  generateCarousel: async (topic, fresh = true) => {
+  generateCarousel: async (topic, fresh = true, signal) => {
     const res = await request('/api/v1/runs/generate', {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ topic, fresh, include_design: true })
+      body: JSON.stringify({ topic, fresh, include_design: true }),
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) throw await readError(res, 'Gagal memicu pembuatan carousel');
     return res.json();
   },
 
-  generateVideo: async (topic, targetDuration = 30, fresh = true) => {
+  generateVideo: async (topic, targetDuration = 30, fresh = true, signal) => {
     const res = await request('/api/v1/runs/generate-video', {
       method: 'POST',
       headers: protectedHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ topic, target_duration: targetDuration, fresh })
+      body: JSON.stringify({ topic, target_duration: targetDuration, fresh }),
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) throw await readError(res, 'Gagal memicu pembuatan video');
     return res.json();

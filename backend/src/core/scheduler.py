@@ -114,51 +114,88 @@ def sync_and_automate(session_factory) -> dict:
 
 def run_once(session_factory, publish_fn: Callable[[str], object], now: Optional[datetime] = None,
              max_attempts: int = 4) -> list[dict]:
-    """Publikasikan item jatuh tempo. Mengembalikan ringkasan per item."""
+    """Publikasikan publikasi terjadwal yang jatuh tempo.
+
+    Sumber kebenaran adalah tabel ``publications`` (bukan hanya item kalender), sehingga
+    konten yang disetujui lewat Pusat Otomatisasi ikut tayang. Item tanpa baris publikasi
+    (data lama) tetap didukung.
+    """
+    from src.core import automation, publication_service as ps
+
     now = now or datetime.now(timezone.utc)
     results: list[dict] = []
-    due = []
+    due: list[tuple[int, str, str]] = []  # (id, run_id, kind)
     with session_factory() as s:
-        policy = _policy(s)
+        if not automation.automation_active(s):
+            return results
+        for pub in s.scalars(select(Publication).where(
+                Publication.status == ps.SCHEDULED, Publication.approved_at.is_not(None))).all():
+            when = _aware(pub.scheduled_for)
+            if when is not None and when > now:
+                continue
+            due.append((pub.id, pub.run_id or "", "publication"))
         for it in s.scalars(select(ContentStrategyItem).where(
-                ContentStrategyItem.status == "scheduled", ContentStrategyItem.run_id.is_not(None))).all():
+                ContentStrategyItem.status == "scheduled",
+                ContentStrategyItem.run_id.is_not(None))).all():
             when = parse_due(it.plan_date, it.scheduled_slot)
             nxt = _aware(it.next_attempt_at)
             if when is None or when > now or (nxt and nxt > now):
                 continue
+            existing = s.scalars(select(Publication).where(
+                Publication.run_id == it.run_id)).first()
+            if existing is not None:
+                continue  # sudah punya baris publikasi: ditangani lewat tabel publications
+            policy = _policy(s)
             if not autonomy.may_publish(policy, it):
                 log.info("Item %s ditahan: butuh persetujuan manusia (mode=%s).", it.id, policy["mode"])
                 continue
-            due.append((it.id, it.run_id))
+            due.append((it.id, it.run_id, "calendar"))
 
-    for item_id, run_id in due:
+    for ref_id, run_id, kind in due:
         try:
-            publish_fn(run_id)
-            results.append({"item_id": item_id, "run_id": run_id, "ok": True})
+            if kind == "publication":
+                # Baris publikasi sudah disetujui: eksekusi langsung (idempoten, klaim atomik).
+                from src.agents import publisher
+                publisher.execute_publication(ref_id, on_step=lambda msg: log.info(msg))
+            else:
+                publish_fn(run_id)
+            results.append({"item_id": ref_id, "run_id": run_id, "ok": True})
         except Exception as exc:
             detail = str(getattr(exc, "detail", None) or exc)
-            log.warning("Publikasi terjadwal item %s gagal: %s", item_id, detail)
-            with session_factory() as s:
-                it = s.get(ContentStrategyItem, item_id)
-                pubs = [p.status for p in s.scalars(select(Publication).where(Publication.run_id == run_id)).all()]
-                it.publish_attempts = (it.publish_attempts or 0) + 1
-                it.last_error = detail[:500]
-                it.updated_at = datetime.now(timezone.utc)
-                if "published" in pubs:
-                    it.status = "published"
-                elif "intent" in pubs:  # status tak pasti: jangan retry otomatis (cegah duplikat)
-                    it.status = "publication_failed"
-                    it.approval_notes = "Scheduler: status publikasi tidak pasti (intent); rekonsiliasi manual."
-                elif is_transient(exc) and it.publish_attempts < max_attempts:
-                    delay = BACKOFF_SECONDS[min(it.publish_attempts - 1, len(BACKOFF_SECONDS) - 1)]
-                    it.status = "scheduled"
-                    it.next_attempt_at = now + timedelta(seconds=delay)
-                else:
-                    it.status = "publication_failed"
-                    it.approval_notes = f"Scheduler: {detail}"[:500]
-                s.commit()
-                results.append({"item_id": item_id, "run_id": run_id, "ok": False, "error": detail,
-                                "status": it.status, "attempts": it.publish_attempts})
+            log.warning("Publikasi terjadwal %s %s gagal: %s", kind, ref_id, detail)
+            if kind == "calendar":
+                with session_factory() as s:
+                    it = s.get(ContentStrategyItem, ref_id)
+                    if it is None:
+                        continue
+                    pubs = [p.status for p in s.scalars(select(Publication).where(
+                        Publication.run_id == run_id)).all()]
+                    it.publish_attempts = (it.publish_attempts or 0) + 1
+                    it.last_error = detail[:500]
+                    it.updated_at = datetime.now(timezone.utc)
+                    if "published" in pubs:
+                        it.status = "published"
+                    elif "intent" in pubs or "publishing" in pubs:
+                        it.status = "publication_failed"
+                        it.approval_notes = "Scheduler: status publikasi tidak pasti (intent); rekonsiliasi manual."
+                    elif is_transient(exc) and it.publish_attempts < max_attempts:
+                        delay = BACKOFF_SECONDS[min(it.publish_attempts - 1, len(BACKOFF_SECONDS) - 1)]
+                        it.status = "scheduled"
+                        it.next_attempt_at = now + timedelta(seconds=delay)
+                    else:
+                        it.status = "publication_failed"
+                        it.approval_notes = f"Scheduler: {detail}"[:500]
+                    s.commit()
+                    results.append({"item_id": ref_id, "run_id": run_id, "ok": False, "error": detail,
+                                    "status": it.status, "attempts": it.publish_attempts})
+            else:
+                # publications.run_once: status baris sudah diperbarui oleh publication_service.
+                from src.core.automation import log_event
+                with session_factory() as s:
+                    log_event(s, kind="publication", action="scheduled_publish_failed", status="error",
+                              message=detail[:400], entity_type="publication", entity_id=str(ref_id),
+                              actor="scheduler")
+                results.append({"item_id": ref_id, "run_id": run_id, "ok": False, "error": detail})
     return results
 
 
@@ -172,10 +209,21 @@ def autopilot_once(session_factory, produce_fn: Callable[[int], object], strateg
     Produksi hanya untuk item berstatus 'approved' (manusia ATAU kebijakan autonomi) -> gate approval tetap utuh.
     """
     from src.core.db import Approval, ResearchSnapshot
+    from src.core import automation
     now = now or datetime.now(timezone.utc)
     stats = {"researched": 0, "strategy_generated": 0, "auto_approved": 0, "produced": 0, "errors": 0,
-             "stale_runs": 0, "recovered_runs": 0}
+             "stale_runs": 0, "recovered_runs": 0, "skipped_paused": 0}
     today = now.strftime("%Y-%m-%d")
+
+    # Pengaturan Pusat Otomatisasi menang atas env: bila dijeda/dihentikan, autopilot tidak berbuat apa pun.
+    with session_factory() as s:
+        if not automation.automation_active(s):
+            stats["skipped_paused"] = 1
+            return stats
+        settings = automation.get_settings(s, create=False)
+        if settings is not None:
+            lead_hours = settings.lead_hours or lead_hours
+            max_concurrent = max(1, min(max_concurrent, settings.frequency_per_week or max_concurrent))
     # Run 'running' yang terlalu lama = prosesnya mati (restart server/timeout): tandai gagal agar tidak
     # menggantung selamanya dan tidak memblokir kuota produksi.
     with session_factory() as s:

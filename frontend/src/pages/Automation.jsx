@@ -5,9 +5,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
-  Facebook,
   History,
-  Instagram,
   Loader2,
   Pause,
   Play,
@@ -19,6 +17,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
+import { InstagramIcon as Instagram, FacebookIcon as Facebook } from '../components/BrandIcons';
 import { api } from '../api';
 import {
   Alert,
@@ -31,8 +30,6 @@ import {
   PageHeader,
   Pills,
   ProgressBar,
-  Segmented,
-  Spinner,
   StatCard,
   StatusBadge,
   Switch,
@@ -178,7 +175,7 @@ function SettingsPanel({ value, onSave, saving }) {
           </div>
         </Field>
 
-        <Field label="Frekuensi publikasi per minggu" hint="Batas jumlah konten yang diproduksi otomatis.")
+        <Field label="Frekuensi publikasi per minggu" hint="Batas jumlah konten yang diproduksi otomatis.">
           <input
             type="number"
             min="1"

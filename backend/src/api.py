@@ -75,7 +75,8 @@ async def lifespan(_app):
 
 from src.ops_api import router as ops_router  # noqa: E402
 from src.campaign_api import router as campaign_router  # noqa: E402
-import src.core.notify  # noqa: E402,F401  (registrasi listener notifikasi/audit)
+from src.automation_api import router as automation_router  # noqa: E402
+import src.core.notify  # noqa: E402,F401  (registrasi notifikasi/audit)
 
 app = FastAPI(
     title="GTNIC Social Media AI Agent API",
@@ -97,6 +98,7 @@ if "*" in allowed_origins:
 
 app.include_router(ops_router)
 app.include_router(campaign_router)
+app.include_router(automation_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -172,6 +174,7 @@ class BrandUpdateRequest(BaseModel):
 
 def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design: bool):
     """Worker task executing agent pipeline with proper DB state tracking."""
+    from src.core.cancellation import clear as clear_cancel
     brand = pipeline.load_brand()
     ctx = create_run_context(topic, brand, run_id=run_id)
     try:
@@ -180,6 +183,7 @@ def _execute_pipeline_task(run_id: str, topic: str, fresh: bool, include_design:
         log.error(f"[API ERROR] Pipeline execution failed for run {run_id}: {e}")
     finally:
         ctx.close()
+        clear_cancel(run_id)
 
 
 def _execute_resume_task(run_id: str):
@@ -379,6 +383,7 @@ def _save_video_result(run_id: str, result_payload: dict, status: str, ctx=None,
 def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: bool = True):
     """Execute video pipeline; successful QC awaits human approval before publication."""
     import asyncio
+    from src.core.cancellation import GenerationCancelled, clear as clear_cancel
     from src.reels.pipeline import VideoPipeline
     from src.video.research_cache import make_researcher
 
@@ -412,6 +417,16 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
         ctx.emit("info", "run_finished", step="video", status=status,
                  tokens_in=ctx.llm.tokens_in, tokens_out=ctx.llm.tokens_out,
                  cost_usd=ctx.llm.cost_usd)
+    except GenerationCancelled:
+        log.info("[CANCEL] Video pipeline run %s dibatalkan pengguna", run_id)
+        try:
+            _save_video_result(run_id, {"type": "video", "ok": False, "video_path": None,
+                                        "issues": ["Dibatalkan oleh pengguna"]},
+                               "cancelled", ctx=ctx, error=None)
+            ctx.emit("info", "run_cancelled", step="video", status="cancelled",
+                     detail={"tokens_used_before_cancel": ctx.llm.tokens_in + ctx.llm.tokens_out})
+        except Exception as db_exc:
+            log.error(f"[CANCEL] Gagal menyimpan status cancelled untuk run {run_id}: {db_exc}")
     except Exception as e:
         log.error(f"[API ERROR] Video pipeline execution failed for run {run_id}: {e}")
         try:
@@ -426,6 +441,7 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
                  detail={"error": str(e), "error_type": type(e).__name__})
     finally:
         ctx.close()
+        clear_cancel(run_id)
 
 
 # --- Endpoints ---
@@ -825,234 +841,156 @@ def get_run_events(run_id: str):
         }
 
 
-def _publish_video_run(run_row: Run, video: dict, req: Optional[PublishOptions], brand: dict) -> dict:
-    """Posting Reels: preflight -> upload MP4 -> Instagram. Caption final datang dari UI (diedit manusia)."""
+def _sync_publisher_session(session_factory) -> None:
+    """Arahkan modul publisher ke session factory aplikasi (mis. saat tes memakai DB in-memory)."""
     from src.agents import publisher
-
-    caption = ((req.caption if req else None) or publisher.default_video_caption(run_row.topic, brand)).strip()
-    share_to_feed = req.share_to_feed if req else True
-
-    ctx = create_run_context(run_row.topic, brand, run_id=run_row.id)
-    try:
-        problems = publisher.preflight_video(video, caption, run_id=run_row.id, session=ctx.session, ctx=ctx)
-        if problems:
-            raise HTTPException(status_code=400, detail="; ".join(problems))
-        with SessionLocal() as db_session:
-            cal_item = db_session.scalars(select(ContentStrategyItem).where(
-                ContentStrategyItem.run_id == run_row.id
-            )).first()
-            _gate_manual_publish(db_session, cal_item)
-            prior_publication = db_session.scalars(select(Publication).where(
-                Publication.run_id == run_row.id, Publication.status.in_(["intent", "published"])
-            )).first()
-            if prior_publication:
-                raise HTTPException(status_code=409, detail="Run ini sudah memiliki publication berjalan atau berhasil.")
-            if cal_item:
-                cal_item.status = "publishing"
-            db_session.commit()
-        result = publisher.publish_reel(video["video_path"], caption, share_to_feed=share_to_feed, ctx=ctx)
-        is_ok = bool(result.get("media_id"))
-
-        # Record tracking against the persisted publication; NULL means metrics have not been ingested.
-        if is_ok:
-            with SessionLocal() as db_session:
-                publication = db_session.scalars(select(Publication).where(
-                    Publication.run_id == run_row.id, Publication.status == "published"
-                ).order_by(desc(Publication.id))).first()
-                cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
-                if cal_item:
-                    cal_item.status = "published"
-                if publication:
-                    analytics = db_session.scalars(select(PostAnalytics).where(
-                        PostAnalytics.publication_id == publication.id
-                    )).first()
-                    if analytics is None:
-                        analytics = PostAnalytics(
-                            publication_id=publication.id,
-                            run_id=run_row.id,
-                            strategy_item_id=cal_item.id if cal_item else None,
-                            media_id=publication.media_id,
-                            permalink=publication.permalink,
-                            topic=run_row.topic,
-                            format="video",
-                            content_pillar=cal_item.content_pillar if cal_item else "Belum diklasifikasikan",
-                            source="instagram_api_pending_metrics",
-                            is_simulated=False,
-                        )
-                        db_session.add(analytics)
-                db_session.commit()
-        else:
-            with SessionLocal() as db_session:
-                cal_item = db_session.scalars(select(ContentStrategyItem).where(
-                    ContentStrategyItem.run_id == run_row.id
-                )).first()
-                if cal_item:
-                    cal_item.status = "publication_failed"
-                    cal_item.approval_notes = str(result.get("error") or "Publisher returned no media identifier")[:500]
-                    db_session.commit()
-
-        return {
-            "run_id": run_row.id,
-            "format": "reel",
-            "status": "published" if is_ok else "failed",
-            "media_id": result.get("media_id"),
-            "permalink": result.get("permalink"),
-            "error": result.get("error"),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        try:
-            with SessionLocal() as db_session:
-                cal_item = db_session.scalars(select(ContentStrategyItem).where(
-                    ContentStrategyItem.run_id == run_row.id
-                )).first()
-                if cal_item and cal_item.status == "publishing":
-                    cal_item.status = "publication_failed"
-                    cal_item.approval_notes = f"Publication gagal: {e}"[:500]
-                    db_session.commit()
-        except Exception as status_exc:
-            log.error(f"[PUBLISH REEL] Failed to record publication failure state: {status_exc}")
-        log.error(f"[PUBLISH REEL ERROR] {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
-    finally:
-        ctx.close()
+    if publisher.SessionLocal is not session_factory:
+        publisher.SessionLocal = session_factory
 
 
-@app.post("/api/v1/runs/{run_id}/publish", dependencies=[Depends(auth.verify_api_key)])
-def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
-    """Mempublikasikan hasil run ke Instagram: carousel (feed) atau Reels (video)."""
+def _run_media_for_publish(session, run_row: Run) -> tuple[dict | None, dict | None, dict | None, list[str], str]:
+    """Kumpulkan plan/design/video + daftar media siap publikasi untuk sebuah run."""
+    plan_row = session.scalars(
+        select(Plan).where(Plan.run_id == run_row.id).order_by(desc(Plan.version))).first()
+    design_row = session.scalars(
+        select(Design).where(Design.run_id == run_row.id).order_by(desc(Design.version))).first()
+    plan_data = json.loads(plan_row.plan_json) if plan_row and plan_row.plan_json else None
+    design_data = json.loads(design_row.result_json) if design_row and design_row.result_json else None
+
+    if design_data and design_data.get("type") == "video":
+        if not design_data.get("ok"):
+            raise HTTPException(status_code=409, detail="QC video gagal; publikasi diblokir.")
+        path = design_data.get("video_path")
+        return plan_data, design_data, design_data, ([path] if path else []), "reel"
+
+    if not plan_row or not design_row:
+        raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
+    semantic_qc = (design_data or {}).get("semantic_qc") or {}
+    if semantic_qc and not semantic_qc.get("ok"):
+        raise HTTPException(status_code=409, detail="Semantic QC gagal; publikasi diblokir.")
+    if not design_row.ok:
+        raise HTTPException(status_code=409, detail="QC/render desain gagal; publikasi diblokir.")
+    if run_row.status == "awaiting_assets":
+        raise HTTPException(status_code=409, detail="Masih ada pose yang belum dibuat; publikasi diblokir.")
+    pending_ids = _pending_pose_ids()
+    if any(pr.get("id") in pending_ids for pr in ((design_data or {}).get("pending_review") or [])):
+        raise HTTPException(status_code=409, detail="Masih ada pose yang menunggu review; setujui dulu.")
+    slides = [s["path"] for s in (design_data or {}).get("slides", []) if s.get("path")]
+    if not slides:
+        raise HTTPException(status_code=400, detail="Tidak ada slide untuk dipublikasikan.")
+    return plan_data, design_data, None, slides, ("carousel" if len(slides) > 1 else "image")
+
+
+def _prepare_and_publish_run(run_id: str, req: Optional[PublishOptions]) -> dict:
+    """Publikasikan hasil run lewat alur persetujuan (kontrak respons lama dipertahankan).
+
+    Endpoint lama ``POST /api/v1/runs/{run_id}/publish`` tetap dipakai frontend yang sudah
+    ada: klik tombol + modal konfirmasi = persetujuan manusia eksplisit. Yang berubah adalah
+    backend kini menempuh state machine yang sama dengan Pusat Otomatisasi, sehingga
+    publikasi ganda, status, dan riwayat tetap konsisten.
+    """
     from src.agents import publisher
+    from src.core import publication_service as ps
 
+    _sync_publisher_session(SessionLocal)
     brand = pipeline.load_brand()
     with SessionLocal() as session:
         run_row = session.get(Run, run_id)
         if not run_row:
             raise HTTPException(status_code=404, detail="Run tidak ditemukan")
-        if run_row.status in {"qc_failed", "failed", "generation_failed"}:
-            raise HTTPException(status_code=409, detail=f"Run tidak dapat dipublikasikan dalam status '{run_row.status}'.")
+        if run_row.status in {"qc_failed", "failed", "generation_failed", "cancelled"}:
+            raise HTTPException(status_code=409,
+                                detail=f"Run tidak dapat dipublikasikan dalam status '{run_row.status}'.")
         cal_item = session.scalars(select(ContentStrategyItem).where(
-            ContentStrategyItem.run_id == run_id
-        )).first()
+            ContentStrategyItem.run_id == run_id)).first()
         _gate_manual_publish(session, cal_item)
         session.commit()
-        prior_publication = session.scalars(select(Publication).where(
-            Publication.run_id == run_id, Publication.status.in_(["intent", "published"])
-        )).first()
-        if prior_publication:
-            raise HTTPException(status_code=409, detail="Run ini sudah memiliki publication berjalan atau berhasil.")
 
-        plan_row = session.scalars(
-            select(Plan).where(Plan.run_id == run_id).order_by(desc(Plan.version))
-        ).first()
-        design_row = session.scalars(
-            select(Design).where(Design.run_id == run_id).order_by(desc(Design.version))
-        ).first()
+        existing = ps.get_for_run(session, run_id)
+        if existing and existing.status in (ps.PUBLISHED,):
+            return {"run_id": run_id, "status": "published", "media_id": existing.media_id,
+                    "permalink": existing.permalink, "error": None, "already_published": True}
+        if existing and existing.status in (ps.INTENT, ps.PUBLISHING):
+            raise HTTPException(status_code=409,
+                                detail="Publikasi run ini sedang diproses atau berhenti di tengah. "
+                                       "Periksa postingan di Instagram sebelum mencoba lagi.")
 
-        video_payload = None
-        if design_row:
-            maybe_video = json.loads(design_row.result_json or "{}")
-            if maybe_video.get("type") == "video":
-                video_payload = maybe_video
-                if not video_payload.get("ok"):
-                    raise HTTPException(status_code=409, detail="QC video gagal; publikasi diblokir.")
-        if video_payload is None:
-            if not plan_row or not design_row:
-                raise HTTPException(status_code=400, detail="Plan atau Desain untuk run ini belum siap.")
-            plan_data = json.loads(plan_row.plan_json)
-            design_data = json.loads(design_row.result_json)
-            semantic_qc = design_data.get("semantic_qc") or {}
-            if semantic_qc and not semantic_qc.get("ok"):
-                raise HTTPException(status_code=409, detail="Semantic QC gagal; publikasi diblokir.")
-            if not design_row.ok:
-                raise HTTPException(status_code=409, detail="QC/render desain gagal; publikasi diblokir.")
-            if run_row.status == "awaiting_assets":
-                raise HTTPException(status_code=409, detail="Masih ada pose yang belum dibuat; publikasi diblokir.")
-            pending_ids = _pending_pose_ids()
-            if any(pr.get("id") in pending_ids for pr in (design_data.get("pending_review") or [])):
-                raise HTTPException(status_code=409, detail="Masih ada pose yang menunggu review; setujui dulu.")
+        plan_data, design_data, video_payload, media_urls, media_type = _run_media_for_publish(session, run_row)
+        if not media_urls:
+            raise HTTPException(status_code=400, detail="Tidak ada media siap publikasi untuk run ini.")
 
-    # Reels diproses SETELAH sesi baca ditutup: upload + pemrosesan video memakan menit, dan transaksi baca
-    # yang masih terbuka bisa memicu "database is locked" di SQLite saat publisher menulis baris intent.
-    if video_payload is not None:
-        return _publish_video_run(run_row, video_payload, req, brand)
+        caption_override = (req.caption if req and req.caption else None)
+        plan_for_pub = dict(plan_data or {})
+        if caption_override:
+            plan_for_pub["caption"] = caption_override
+            plan_for_pub["hashtags"] = []  # caption dari editor sudah memuat hashtag sendiri
+        if video_payload is not None and not caption_override:
+            plan_for_pub["caption"] = publisher.default_video_caption(run_row.topic, brand)
+            plan_for_pub["hashtags"] = []
 
-    # Eksekusi publishing via publisher agent
-    ctx = create_run_context(run_row.topic, brand, run_id=run_id)
+        # Gerbang QC Reels (codec/durasi/ukuran, caption, env) tetap wajib sebelum menyentuh API Meta.
+        if video_payload is not None:
+            problems = publisher.preflight_video(
+                video_payload, plan_for_pub.get("caption") or "", run_id=run_row.id, session=session)
+            if problems:
+                raise HTTPException(status_code=400, detail="; ".join(problems))
+
+        if existing and existing.status in (ps.FAILED, ps.PENDING_APPROVAL, ps.SCHEDULED):
+            ps.update_draft(session, existing, caption=plan_for_pub.get("caption"),
+                            hashtags=plan_for_pub.get("hashtags"), image_urls=media_urls,
+                            media_type=media_type)
+            pub = existing
+        else:
+            pub = ps.ensure_pending(session, run_id=run_id, plan=plan_for_pub, media_type=media_type,
+                                    image_urls=media_urls,
+                                    strategy_item_id=cal_item.id if cal_item else None,
+                                    require_approval=True)
+        ps.approve(session, pub, actor="api_user")
+        session.refresh(pub)
+        # Klik + modal konfirmasi = tayang sekarang, bukan dijadwalkan.
+        if pub.scheduled_for is not None:
+            ps.update_draft(session, pub, clear_schedule=True)
+            session.refresh(pub)
+        pub_id = pub.id
+        if cal_item:
+            cal_item.status = "publishing"
+            session.commit()
+
     try:
-        # Panggil preflight sebelum publish
-        problems = publisher.preflight(plan_data, design_data, session=ctx.session, ctx=ctx)
-        if problems:
-            raise HTTPException(status_code=400, detail="; ".join(problems))
+        result = publisher.execute_publication(
+            pub_id, share_to_feed=(req.share_to_feed if req else True),
+            session_factory=SessionLocal)
+    except ps.PublicationError as exc:
+        with SessionLocal() as session:
+            cal_item = session.scalars(select(ContentStrategyItem).where(
+                ContentStrategyItem.run_id == run_id)).first()
+            if cal_item and cal_item.status == "publishing":
+                cal_item.status = "publication_failed"
+                cal_item.approval_notes = str(exc)[:500]
+                session.commit()
+        # Kontrak API lama dipertahankan: masalah validasi/persetujuan 4xx, kegagalan
+        # provider (Cloudinary/Meta) tetap 500 dengan pesan penyebab yang terbaca.
+        status = exc.status_code if exc.status_code in (400, 404, 409) else 500
+        raise HTTPException(status_code=status, detail=str(exc)) from None
 
-        with SessionLocal() as db_session:
-            cal_item = db_session.scalars(select(ContentStrategyItem).where(
-                ContentStrategyItem.run_id == run_id
-            )).first()
-            if cal_item:
-                cal_item.status = "publishing"
-                db_session.commit()
-
-        slide_paths = [s["path"] for s in design_data.get("slides", [])]
-        result = publisher.publish(plan_data, slide_paths, ctx=ctx)
-        is_ok = bool(result.get("ok")) or bool(result.get("media_id"))
-
-        # Record tracking against the persisted publication; NULL means metrics have not been ingested.
-        if is_ok:
-            with SessionLocal() as db_session:
-                publication = db_session.scalars(select(Publication).where(
-                    Publication.run_id == run_id, Publication.status == "published"
-                ).order_by(desc(Publication.id))).first()
-                cal_item = db_session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
-                if cal_item:
-                    cal_item.status = "published"
-                if publication:
-                    analytics = db_session.scalars(select(PostAnalytics).where(
-                        PostAnalytics.publication_id == publication.id
-                    )).first()
-                    if analytics is None:
-                        db_session.add(PostAnalytics(
-                            publication_id=publication.id,
-                            run_id=run_id,
-                            strategy_item_id=cal_item.id if cal_item else None,
-                            media_id=publication.media_id,
-                            permalink=publication.permalink,
-                            topic=run_row.topic,
-                            format="carousel",
-                            content_pillar=cal_item.content_pillar if cal_item else plan_data.get("content_pillar", "Belum diklasifikasikan"),
-                            source="instagram_api_pending_metrics",
-                            is_simulated=False,
-                        ))
-                elif not is_ok and cal_item:
-                    cal_item.status = "publication_failed"
-                    cal_item.approval_notes = str(result.get("error") or "Publisher returned no media identifier")[:500]
-                db_session.commit()
-
+    with SessionLocal() as session:
+        pub = session.get(Publication, pub_id)
         return {
             "run_id": run_id,
-            "status": "published" if is_ok else "failed",
+            "format": "reel" if result.get("format") == "reel" else "carousel",
+            "status": "published" if result.get("ok") else "failed",
             "media_id": result.get("media_id"),
             "permalink": result.get("permalink"),
-            "error": result.get("error")
+            "error": None if result.get("ok") else result.get("error"),
+            "publication_id": pub_id,
+            "publication": ps.serialize(pub) if pub else None,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        try:
-            with SessionLocal() as db_session:
-                cal_item = db_session.scalars(select(ContentStrategyItem).where(
-                    ContentStrategyItem.run_id == run_id
-                )).first()
-                if cal_item and cal_item.status == "publishing":
-                    cal_item.status = "publication_failed"
-                    cal_item.approval_notes = f"Publication gagal: {e}"[:500]
-                    db_session.commit()
-        except Exception as status_exc:
-            log.error(f"[PUBLISH] Failed to record publication failure state: {status_exc}")
-        log.error(f"[PUBLISH ERROR] {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        ctx.close()
+
+
+@app.post("/api/v1/runs/{run_id}/publish", dependencies=[Depends(auth.verify_api_key)])
+def publish_run_to_instagram(run_id: str, req: Optional[PublishOptions] = None):
+    """Mempublikasikan hasil run ke Instagram: carousel (feed) atau Reels (video)."""
+    return _prepare_and_publish_run(run_id, req)
 
 
 class AssetPermissions(BaseModel):

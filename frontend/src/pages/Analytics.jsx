@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, PageHeader, StatCard } from '../components/ui';
 import { BarChart } from '../components/Chart';
+import PublicationAnalytics from '../components/PublicationAnalytics';
 import { fmtCompact, fmtNumber, timeAgo, truncate } from '../lib/format';
 import { cn } from '../lib/utils';
 
@@ -280,6 +281,10 @@ export default function Analytics({ analyticsData, loading, error, onRefresh }) 
           </>
         )}
       </Card>
+
+      {/* Performa per postingan (media ID Instagram asli) — bagian terpisah dari
+          ringkasan analitik di atas karena sumber datanya endpoint berbeda. */}
+      <PublicationAnalytics />
     </div>
   );
 }

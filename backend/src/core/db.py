@@ -116,20 +116,40 @@ class Event(Base):
 
 
 class Publication(Base):
+    """Satu baris = satu niat publikasi konten ke satu platform.
+
+    Siklus status (lihat ``PUBLICATION_STATUSES`` di core/publication_service.py):
+    pending_approval -> scheduled -> publishing -> intent -> published | failed | cancelled
+
+    ``intent`` dipertahankan sebagai penanda "sudah memanggil API Meta" untuk rekonsiliasi
+    (kalau proses mati di tengah, status tidak pasti dan TIDAK boleh diretry otomatis).
+    ``dedupe_key`` unik mencegah publikasi ganda untuk konten yang sama.
+    """
     __tablename__ = "publications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True)
+    strategy_item_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False, default="instagram")
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(128), unique=True)
     intent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[str | None] = mapped_column(String(64))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     media_id: Mapped[str | None] = mapped_column(String(128))
+    media_type: Mapped[str | None] = mapped_column(String(32))       # carousel | image | reel
     permalink: Mapped[str | None] = mapped_column(Text)
     caption: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    hashtags_json: Mapped[str | None] = mapped_column(Text)
     image_urls_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    publish_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claim_token: Mapped[str | None] = mapped_column(String(64))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class CredentialStatus(Base):
@@ -217,6 +237,8 @@ class PostAnalytics(Base):
     topic: Mapped[str] = mapped_column(Text, nullable=False)
     reach: Mapped[int | None] = mapped_column(Integer)
     impressions: Mapped[int | None] = mapped_column(Integer)
+    views: Mapped[int | None] = mapped_column(Integer)             # 'views' per-media (Reels/feed)
+    total_interactions: Mapped[int | None] = mapped_column(Integer)
     likes: Mapped[int | None] = mapped_column(Integer)
     comments: Mapped[int | None] = mapped_column(Integer)
     shares: Mapped[int | None] = mapped_column(Integer)
@@ -309,6 +331,74 @@ class AuditLog(Base):
     entity_id: Mapped[str | None] = mapped_column(String(64))
     detail_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class AutomationSettings(Base):
+    """Konfigurasi Pusat Otomatisasi (satu baris, id=1).
+
+    Menggantikan ketergantungan penuh pada variabel env untuk hal yang wajar diubah
+    operator UMKM. Nilai env tetap dipakai sebagai default saat baris belum ada.
+    """
+    __tablename__ = "automation_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="paused")  # running|paused|stopped
+    platforms_json: Mapped[str] = mapped_column(Text, nullable=False, default='["instagram"]')
+    posting_days_json: Mapped[str] = mapped_column(Text, nullable=False, default='[1,2,3,4,5,6,7]')
+    slots_json: Mapped[str] = mapped_column(Text, nullable=False, default='["09:00","19:00"]')
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Jakarta")
+    frequency_per_week: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    content_formats_json: Mapped[str] = mapped_column(Text, nullable=False, default='["carousel"]')
+    content_pillars_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    require_approval: Mapped[bool] = mapped_column(nullable=False, default=True)
+    auto_generate: Mapped[bool] = mapped_column(nullable=False, default=True)
+    lead_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_by: Mapped[str | None] = mapped_column(String(64))
+
+
+class AutomationEvent(Base):
+    """Riwayat aktivitas otomatisasi (append-only) untuk panel Pusat Otomatisasi."""
+    __tablename__ = "automation_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="ok")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    entity_type: Mapped[str | None] = mapped_column(String(48))
+    entity_id: Mapped[str | None] = mapped_column(String(64))
+    actor: Mapped[str] = mapped_column(String(64), nullable=False, default="system")
+    detail_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class PostAnalyticsSnapshot(Base):
+    """Riwayat pengambilan metrik per publikasi (tren performa dari waktu ke waktu).
+
+    Satu baris per pengambilan; nilai yang tidak didukung API tetap NULL sehingga tren
+    bisa membedakan "belum tersedia" dari "nol".
+    """
+    __tablename__ = "post_analytics_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    publication_id: Mapped[int | None] = mapped_column(ForeignKey("publications.id"), index=True)
+    media_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="instagram_graph_api")
+    reach: Mapped[int | None] = mapped_column(Integer)
+    impressions: Mapped[int | None] = mapped_column(Integer)
+    views: Mapped[int | None] = mapped_column(Integer)
+    likes: Mapped[int | None] = mapped_column(Integer)
+    comments: Mapped[int | None] = mapped_column(Integer)
+    shares: Mapped[int | None] = mapped_column(Integer)
+    saves: Mapped[int | None] = mapped_column(Integer)
+    profile_visits: Mapped[int | None] = mapped_column(Integer)
+    follower_delta: Mapped[int | None] = mapped_column(Integer)
+    total_interactions: Mapped[int | None] = mapped_column(Integer)
+    engagement_rate: Mapped[float | None] = mapped_column(Float)
+    metrics_available_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 NEW_COLUMNS = {
@@ -412,7 +502,8 @@ def ingest_publication_metrics(session, publication: Publication, metrics: dict[
             topic=str(metrics.get("topic") or ""),
         )
         session.add(row)
-    metric_fields = ("reach", "impressions", "likes", "comments", "shares", "saves", "profile_visits")
+    metric_fields = ("reach", "impressions", "views", "total_interactions", "likes", "comments", "shares",
+                     "saves", "profile_visits")
     for field in metric_fields + ("follower_delta", "link_clicks"):
         value = metrics.get(field)
         setattr(row, field, int(value) if value is not None else None)

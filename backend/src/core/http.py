@@ -1,5 +1,11 @@
-"""HTTP requests with timeouts, retries, secret redaction, and event reporting."""
+"""HTTP requests with timeouts, bounded retries, secret redaction, and error detail extraction.
+
+Provider error bodies are surfaced (sanitized) instead of being replaced with a generic
+"HTTP request failed" wrapper: that old behaviour hid truly actionable causes such as
+Cloudinary's "Stale request" (clock skew) or Meta's permission/param errors.
+"""
 from email.utils import parsedate_to_datetime
+import json
 import re
 import time
 from typing import Any
@@ -11,9 +17,27 @@ from requests import Response
 from src.core.events import EventEmitter
 
 
-_SECRET_KEYS = {"access_token", "api_key", "apikey", "token", "authorization", "x-api-key"}
-_SECRET_PATTERN = re.compile(r"(?i)(access_token|api_key|authorization)(\s*[=:]\s*)([^\s&,;]+)")
-_SECRET_QUERY_PATTERN = re.compile(r"(?i)(access_token|api_key|apikey|token)(=|%3D)([^\s&,;]+)")
+_SECRET_KEYS = {"access_token", "api_key", "apikey", "token", "authorization", "x-api-key",
+                "api_secret", "signature", "sig"}
+_SECRET_PATTERN = re.compile(r"(?i)(access_token|api_key|api_secret|authorization|signature)(\s*[=:]\s*)([^\s&,;]+)")
+_SECRET_QUERY_PATTERN = re.compile(r"(?i)(access_token|api_key|apikey|token|signature)(=|%3D)([^\s&,;]+)")
+_RETRYABLE_STATUS = {408, 425, 429}
+MAX_DETAIL_CHARS = 400
+
+
+class HttpError(RuntimeError):
+    """Provider HTTP failure carrying status code and a sanitized provider message.
+
+    Only non-secret context is exposed so callers can log/persist it safely.
+    """
+
+    def __init__(self, message: str, *, provider: str = "", status_code: int | None = None,
+                 provider_message: str = "", retryable: bool = False) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.status_code = status_code
+        self.provider_message = provider_message
+        self.retryable = retryable
 
 
 def redact_url(url: str) -> str:
@@ -31,6 +55,59 @@ def redact_text(text: str) -> str:
     sanitized = _SECRET_PATTERN.sub(r"\1\2[REDACTED]", sanitized)
     sanitized = _SECRET_QUERY_PATTERN.sub(r"\1\2[REDACTED]", sanitized)
     return sanitized
+
+
+def _decode(raw: bytes) -> str:
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return ""
+
+
+def extract_error_message(response: Response) -> str:
+    """Pull the human-readable provider error out of a response body.
+
+    Understands Cloudinary (``{"error": {"message": ...}}``), Meta Graph
+    (``{"error": {"message","code","error_subcode","type"}}``), FastAPI ``detail``,
+    and plain-text bodies. Never raises; returns "" when nothing readable is found.
+    """
+    try:
+        raw = response.content or b""
+    except Exception:  # pragma: no cover - defensive: stream already consumed
+        return ""
+    text = _decode(raw).strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            parts = [str(err.get("message") or err.get("detail") or "").strip()]
+            if err.get("code") not in (None, ""):
+                parts.append(f"code={err.get('code')}")
+            if err.get("error_subcode"):
+                parts.append(f"subcode={err.get('error_subcode')}")
+            if err.get("type"):
+                parts.append(str(err.get("type")))
+            joined = " | ".join(p for p in parts if p)
+            if joined:
+                return joined[:MAX_DETAIL_CHARS]
+        elif isinstance(err, str) and err.strip():
+            return err.strip()[:MAX_DETAIL_CHARS]
+        detail = data.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()[:MAX_DETAIL_CHARS]
+        if isinstance(detail, list) and detail:
+            first = detail[0]
+            if isinstance(first, dict) and first.get("msg"):
+                return str(first["msg"])[:MAX_DETAIL_CHARS]
+    return text[:MAX_DETAIL_CHARS]
 
 
 class HttpClient:
@@ -61,25 +138,45 @@ class HttpClient:
                     response = self.session.request(method, url, timeout=effective_timeout, **kwargs)
                 except (requests.Timeout, requests.ConnectionError) as exc:
                     if attempt >= self.max_attempts:
-                        raise RuntimeError(f"{provider} request timed out after {attempt} attempts") from exc
+                        raise HttpError(
+                            f"{provider} tidak merespons setelah {attempt} percobaan "
+                            f"({type(exc).__name__}); periksa koneksi server.",
+                            provider=provider, retryable=True) from None
                     self._retry(step, provider, attempt, "timeout", 2 ** (attempt - 1))
                     time.sleep(2 ** (attempt - 1))
                     continue
-                if response.status_code == 429 or response.status_code >= 500:
-                    if attempt < self.max_attempts:
-                        delay = self._retry_delay(response, attempt)
-                        self._retry(step, provider, attempt, f"HTTP {response.status_code}", delay)
-                        time.sleep(delay)
-                        continue
-                response.raise_for_status()
+
+                retryable = response.status_code in _RETRYABLE_STATUS or response.status_code >= 500
+                if retryable and attempt < self.max_attempts:
+                    delay = self._retry_delay(response, attempt)
+                    self._retry(step, provider, attempt, f"HTTP {response.status_code}", delay)
+                    time.sleep(delay)
+                    continue
+
+                if response.status_code >= 400:
+                    detail = redact_text(extract_error_message(response))
+                    message = f"{provider} HTTP {response.status_code}"
+                    if detail:
+                        message = f"{message}: {detail}"
+                    raise HttpError(message, provider=provider, status_code=response.status_code,
+                                    provider_message=detail, retryable=retryable)
+
                 self._emit(step, provider, safe_url, response.status_code, started, "ok", units=units)
                 return response
-            raise RuntimeError(f"{provider} request failed after {self.max_attempts} attempts")
-        except Exception as exc:
+            raise HttpError(f"{provider} request failed after {self.max_attempts} attempts",
+                            provider=provider)
+        except HttpError as exc:
+            self._emit(step, provider, safe_url,
+                       exc.status_code or (response.status_code if response is not None else None),
+                       started, "error", {"error": redact_text(str(exc))[:500]}, units=units)
+            raise
+        except Exception as exc:  # noqa: BLE001 - the network stack raises many types
             status_code = response.status_code if response is not None else None
             self._emit(step, provider, safe_url, status_code, started, "error",
                        {"error": redact_text(str(exc))[:500]}, units=units)
-            raise RuntimeError(f"{provider} HTTP request failed ({type(exc).__name__})") from None
+            raise HttpError(f"{provider} HTTP request failed ({type(exc).__name__}): "
+                            f"{redact_text(str(exc))[:200]}",
+                            provider=provider, status_code=status_code) from None
 
     def _retry_delay(self, response: Response, attempt: int) -> float:
         retry_after = response.headers.get("Retry-After")

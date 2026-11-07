@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from src import config
 from src.carousel.agents import designer, research_agent, planner
 from src.carousel.tools.semantic_qc import check_carousel_semantics
+from src.core.cancellation import GenerationCancelled, clear as clear_cancel, raise_if_cancelled
 from src.core.context import RunContext, create_run_context
 from src.core.db import Design, Plan, ResearchSnapshot, Run
 
@@ -146,6 +147,7 @@ def _close_run(session, ctx: RunContext, status: str, error: str | None = None):
     return run_row
 
 
+
 def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | None = None,
         include_design: bool = False) -> dict:
     brand = load_brand()
@@ -154,6 +156,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
     session = ctx.session
     try:
         ctx.emit("info", "run_started", step="pipeline", detail={"topic": topic})
+        raise_if_cancelled(ctx.run_id)
         if fresh:
             on_step("== Agent 1: Research ==")
             res = research_agent.run(topic, brand.get("industry", ""), on_step=on_step, ctx=ctx,
@@ -183,6 +186,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             _export_run_version(ctx.run_id, "research", research_version or 1, research_export)
 
         on_step("== Agent 2: Planner ==")
+        raise_if_cancelled(ctx.run_id)
         out = planner.run(topic, research, brand, on_step=on_step, ctx=ctx)
         version = session.scalar(select(func.max(Plan.version)).where(Plan.run_id == ctx.run_id)) or 0
         plan_row = Plan(run_id=ctx.run_id, version=version + 1, ok=bool(out.get("ok")),
@@ -209,6 +213,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             return out
 
         if include_design and out.get("plan"):
+            raise_if_cancelled(ctx.run_id)
             # BUG-08 semantic QC gate: periksa konsistensi peran slide, headline, dan klaim statistik
             try:
                 semantic_qc_result = check_carousel_semantics(out["plan"], research, brand, topic)
@@ -233,6 +238,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
                          detail={"warnings": semantic_qc_result["warnings"]})
 
             design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
+            raise_if_cancelled(ctx.run_id)  # jangan simpan hasil yang sudah dibatalkan sebagai konten jadi
             design_result["semantic_qc"] = semantic_qc_result
             design_version = session.scalar(select(func.max(Design.version)).where(Design.run_id == ctx.run_id)) or 0
             session.add(Design(run_id=ctx.run_id, plan_id=plan_row.id, version=design_version + 1,
@@ -269,6 +275,24 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
                      cost_usd=run_row.cost_usd)
         out["run_id"] = ctx.run_id
         return out
+    except GenerationCancelled:
+        # Dibatalkan pengguna: JANGAN tandai gagal dan jangan simpan sebagai konten selesai.
+        try:
+            session.rollback()
+            run_row = session.get(Run, ctx.run_id)
+            if run_row and run_row.status != "cancelled":
+                run_row.status = "cancelled"
+                run_row.error = None
+                run_row.finished_at = datetime.now(timezone.utc)
+                run_row.tokens_in = ctx.llm.tokens_in
+                run_row.tokens_out = ctx.llm.tokens_out
+                run_row.cost_usd = ctx.llm.cost_usd
+                session.commit()
+            ctx.emit("info", "run_cancelled", step="pipeline", status="cancelled",
+                     detail={"tokens_used_before_cancel": ctx.llm.tokens_in + ctx.llm.tokens_out})
+        except Exception as inner:
+            log.warning("[PIPELINE] gagal menandai run %s cancelled: %s", ctx.run_id, inner)
+        return {"run_id": ctx.run_id, "ok": False, "cancelled": True}
     except Exception as exc:
         try:
             session.rollback()  # session bisa dalam state gagal kalau error datang dari DB

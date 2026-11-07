@@ -62,6 +62,15 @@ class VideoPipeline:
         if self.ctx and hasattr(self.ctx, "emit"):
             self.ctx.emit(kind, name, step="video", status=status, detail=detail or {})
 
+    def _check_cancel(self) -> None:
+        """Batalkan pekerjaan video secepat mungkin bila pengguna menekan Batalkan.
+
+        Dicek di antara unit kerja (per scene) supaya TTS/B-roll/assembling yang
+        mahal tidak dilanjutkan untuk run yang sudah dibatalkan.
+        """
+        from src.core.cancellation import raise_if_cancelled
+        raise_if_cancelled(getattr(self.ctx, "run_id", None) if self.ctx else None)
+
     async def run_pipeline(
         self,
         topic: str,
@@ -80,6 +89,7 @@ class VideoPipeline:
         """
         t0 = time.time()
         self._emit("video_pipeline_started", {"topic": topic, "target_duration_sec": target_duration_sec})
+        self._check_cancel()
 
         output_dir = Path(out_dir or (config.ROOT / "output" / "reels"))
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,6 +123,7 @@ class VideoPipeline:
             research_context=research_context,
             target_duration_sec=target_duration_sec,
         )
+        self._check_cancel()
         meta = getattr(self.scriptwriter, "last_meta", None)
         self._emit("video_script_generated", {
             "scenes_count": len(script.scenes),
@@ -127,6 +138,7 @@ class VideoPipeline:
         scenes_data = []
         used_brolls: list = []  # klip yang sudah dipakai scene sebelumnya (hindari visual kembar)
         for idx, scene in enumerate(script.scenes):
+            self._check_cancel()
             scene_audio_path = str(output_dir / f"temp_scene_{idx + 1}.mp3")
 
             # Stage 2: TTS
@@ -169,6 +181,7 @@ class VideoPipeline:
         # ---------------------------------------------------------------------
         # Stage 4: Video Compositor Assembly
         # ---------------------------------------------------------------------
+        self._check_cancel()
         bgm_path = None
         if self.bgm_resolver is not None:
             try:

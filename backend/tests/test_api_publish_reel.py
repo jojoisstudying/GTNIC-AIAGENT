@@ -34,7 +34,9 @@ def env(tmp_path: Path, monkeypatch):
     ctx = create_run_context("Apa itu HTTPS", BRAND, session_factory=factory)
     run_id = ctx.run_id
     ctx.close()
-    video = {**VIDEO, "video_path": str(out_dir / "reels" / f"reels_{run_id}.mp4")}
+    video_file = out_dir / "reels" / f"reels_{run_id}.mp4"
+    video_file.write_bytes(b"FAKE-MP4-CONTENT" * 256)  # pipeline nyata menulis file sebelum publish
+    video = {**VIDEO, "video_path": str(video_file)}
     api._save_video_result(run_id, video, "ok")
     with factory() as session:
         session.add(ContentStrategyItem(
@@ -53,20 +55,15 @@ def test_publish_video_run_sends_edited_caption_to_publisher(env, monkeypatch):
                         lambda v, caption, run_id=None, session=None, ctx=None: seen.update(pre=(v["video_path"], caption, run_id)) or [])
     def publish_reel(path, caption, share_to_feed=True, ctx=None):
         seen["pub"] = (path, caption, share_to_feed)
-        with factory() as session:
-            session.add(Publication(
-                run_id=run_id, status="published", media_id="IG1",
-                    permalink="https://instagr.am/reel/1", caption=caption, image_urls_json="[]", published_at=utc_now(),
-            ))
-            session.commit()
-        return {"media_id": "IG1", "permalink": "https://instagr.am/reel/1"}
+        return "IG1"
 
-    monkeypatch.setattr("src.agents.publisher.publish_reel", publish_reel)
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel", publish_reel)
 
     res = api.publish_run_to_instagram(run_id, api.PublishOptions(caption="Caption editan #tes", share_to_feed=False))
 
     assert res["format"] == "reel" and res["status"] == "published" and res["media_id"] == "IG1"
-    assert seen["pub"] == (video["video_path"], "Caption editan #tes", False)
+    assert seen["pub"] == ("https://cdn.example.com/v.mp4", "Caption editan #tes", False)
     assert seen["pre"][1] == "Caption editan #tes" and seen["pre"][2] == run_id
     with factory() as session:
         analytics = session.query(PostAnalytics).one()
@@ -87,30 +84,35 @@ def test_analytics_tracking_is_idempotent_for_publication(env, monkeypatch):
         session.add(Publication(run_id=run_id, status="published", media_id="IG1", caption="c", image_urls_json="[]"))
         session.commit()
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: [])
-    monkeypatch.setattr("src.agents.publisher.publish_reel", lambda *a, **k: {"media_id": "IG1"})
-    with pytest.raises(HTTPException) as exc:
-        api.publish_run_to_instagram(run_id)
-    assert exc.value.status_code == 409
+    monkeypatch.setattr("src.tools.instagram.get_media_metrics",
+                        lambda mid, ctx=None: {"permalink": "https://instagr.am/reel/x"})
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel", lambda *a, **k: "IG1")
+    res = api.publish_run_to_instagram(run_id)
+    assert res["status"] == "published" and res.get("already_published") is True
     with factory() as session:
-        assert session.query(PostAnalytics).count() == 0
+        assert session.query(PostAnalytics).count() == 0          # tidak ada ingest ganda
+        assert session.query(Publication).count() == 1            # tidak ada baris publikasi baru
 
 
 def test_analytics_persistence_failure_is_not_silently_hidden(env, monkeypatch):
     factory, run_id, _ = env
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: [])
-    monkeypatch.setattr("src.agents.publisher.publish_reel", lambda *a, **k: {"media_id": "IG1"})
-    calls = 0
-    def failing_session_factory():
-        nonlocal calls
-        calls += 1
-        if calls == 3:
-            raise RuntimeError("analytics DB unavailable")
-        return factory()
-    monkeypatch.setattr(api, "SessionLocal", failing_session_factory)
+    monkeypatch.setattr("src.tools.instagram.get_media_metrics",
+                        lambda mid, ctx=None: {"permalink": "https://instagr.am/reel/x"})
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel", lambda *a, **k: "IG1")
+    # Kegagalan pencatatan analytics SETELAH tayang tidak boleh disembunyikan. Kegagalan
+    # diisolasi ke satu operasi itu (bukan urutan pemanggilan session) agar tes tidak rapuh.
+    def boom_analytics(*a, **k):
+        raise RuntimeError("analytics DB unavailable")
+    monkeypatch.setattr("src.core.publication_service.ensure_analytics_row", boom_analytics)
     with pytest.raises(HTTPException) as exc:
         api.publish_run_to_instagram(run_id)
     assert exc.value.status_code == 500
     assert "analytics DB unavailable" in exc.value.detail
+    with factory() as session:   # postingan tetap tercatat tayang walau analytics gagal
+        assert session.query(Publication).one().status == "published"
 
 
 def test_analytics_ingestion_is_idempotent_and_preserves_missing_metrics(env):
@@ -137,8 +139,11 @@ def test_publish_without_body_uses_default_caption(env, monkeypatch):
     _, run_id, _ = env
     seen = {}
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: [])
-    monkeypatch.setattr("src.agents.publisher.publish_reel",
-                        lambda path, caption, share_to_feed=True, ctx=None: seen.update(c=caption, f=share_to_feed) or {"media_id": "IG2"})
+    monkeypatch.setattr("src.tools.instagram.get_media_metrics",
+                        lambda mid, ctx=None: {"permalink": "https://instagr.am/reel/x"})
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel",
+                        lambda path, caption, share_to_feed=True, ctx=None: seen.update(c=caption, f=share_to_feed) or "IG2")
     api.publish_run_to_instagram(run_id)
     assert seen["c"].startswith("Apa itu HTTPS") and "#tes" in seen["c"] and seen["f"] is True
 
@@ -146,7 +151,7 @@ def test_publish_without_body_uses_default_caption(env, monkeypatch):
 def test_preflight_problems_become_400_and_nothing_is_published(env, monkeypatch):
     _, run_id, _ = env
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: ["durasi 2.0 detik di luar batas", "caption kosong"])
-    monkeypatch.setattr("src.agents.publisher.publish_reel", lambda *a, **k: pytest.fail("tidak boleh posting"))
+    monkeypatch.setattr("src.tools.instagram.publish_reel", lambda *a, **k: pytest.fail("tidak boleh posting"))
     with pytest.raises(HTTPException) as exc:
         api.publish_run_to_instagram(run_id, api.PublishOptions(caption=""))
     assert exc.value.status_code == 400 and "durasi" in exc.value.detail and "caption kosong" in exc.value.detail
@@ -197,6 +202,8 @@ def test_approved_strategy_item_can_publish_and_advances_state(env, monkeypatch)
         item.status = "approved"
         session.commit()
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: [])
+    monkeypatch.setattr("src.tools.instagram.get_media_metrics",
+                        lambda mid, ctx=None: {"permalink": "https://instagr.am/reel/x"})
 
     def publish(path, caption, share_to_feed=True, ctx=None):
         with factory() as session:
@@ -205,7 +212,8 @@ def test_approved_strategy_item_can_publish_and_advances_state(env, monkeypatch)
             session.commit()
         return {"media_id": "IG_APPROVED"}
 
-    monkeypatch.setattr("src.agents.publisher.publish_reel", publish)
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel", lambda *a, **k: "IG_APPROVED")
     result = api.publish_run_to_instagram(run_id)
     assert result["status"] == "published"
     with factory() as session:
@@ -218,10 +226,13 @@ def test_approved_strategy_item_can_publish_and_advances_state(env, monkeypatch)
 def test_publisher_error_becomes_500_with_readable_message(env, monkeypatch):
     _, run_id, _ = env
     monkeypatch.setattr("src.agents.publisher.preflight_video", lambda *a, **k: [])
+    monkeypatch.setattr("src.tools.instagram.get_media_metrics",
+                        lambda mid, ctx=None: {"permalink": "https://instagr.am/reel/x"})
 
     def boom(*a, **k):
         raise RuntimeError("Container C1 berstatus ERROR")
-    monkeypatch.setattr("src.agents.publisher.publish_reel", boom)
+    monkeypatch.setattr("src.tools.hosting.upload_video", lambda p, http=None: "https://cdn.example.com/v.mp4")
+    monkeypatch.setattr("src.tools.instagram.publish_reel", boom)
     with pytest.raises(HTTPException) as exc:
         api.publish_run_to_instagram(run_id, api.PublishOptions(caption="c"))
     assert exc.value.status_code == 500 and "berstatus ERROR" in exc.value.detail

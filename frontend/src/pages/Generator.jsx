@@ -8,6 +8,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Square,
   Wand2,
 } from 'lucide-react';
 import { Alert, Badge, Button, Card, CardHeader, Field, PageHeader, Switch } from '../components/ui';
@@ -56,6 +57,8 @@ export default function Generator({
   currentRunId,
   onSubmit,
   onReset,
+  onCancelRun,
+  cancelling,
   onPublish,
   publishing,
   publishResult,
@@ -272,12 +275,25 @@ export default function Generator({
               type="submit"
               size="lg"
               icon={isRunning ? undefined : Sparkles}
-              loading={isRunning}
+              loading={isRunning && !onCancelRun}
               disabled={isRunning || !topic.trim()}
               className="order-1 w-full sm:order-2 sm:w-auto"
             >
               {isRunning ? 'AI sedang bekerja…' : 'Buat konten sekarang'}
             </Button>
+            {isRunning && onCancelRun && (
+              <Button
+                type="button"
+                size="lg"
+                variant="secondary"
+                icon={Square}
+                loading={cancelling}
+                onClick={onCancelRun}
+                className="order-1 w-full sm:order-2 sm:w-auto"
+              >
+                Batalkan generasi
+              </Button>
+            )}
           </div>
         </form>
       </Card>

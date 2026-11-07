@@ -58,6 +58,7 @@ export const RUN_STATUS = {
   awaiting_approval: { label: 'Menunggu persetujuan', tone: 'warning' },
   awaiting_assets: { label: 'Butuh foto pose', tone: 'warning' },
   failed: { label: 'Gagal', tone: 'danger' },
+  cancelled: { label: 'Dibatalkan', tone: 'neutral' },
 };
 
 export const runStatusMeta = (status) =>
