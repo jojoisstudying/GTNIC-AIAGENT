@@ -265,6 +265,12 @@ export default function Generator({
             </Alert>
           )}
 
+          {isRunning && (
+            <Alert tone="brand" title="AI sedang memproses pembuatan konten">
+              Pembuatan konten sedang berlangsung di server. Mohon tunggu proses saat ini selesai sebelum memulai pembuatan baru agar performa rendering optimal dan tidak melebihi kuota API.
+            </Alert>
+          )}
+
           <div className="flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="order-2 text-xs leading-relaxed text-ink-muted sm:order-1">
               {formatType === 'video'

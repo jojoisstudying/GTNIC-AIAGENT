@@ -349,6 +349,12 @@ export const api = {
     return res.json();
   },
 
+  getPublication: async (pubId) => {
+    const res = await request(`/api/v1/publications/${pubId}`);
+    if (!res.ok) throw await readError(res, 'Gagal mengambil detail publikasi');
+    return res.json();
+  },
+
   // Batalkan generasi konten yang sedang berjalan (tidak menyimpan hasil yang dibatalkan).
   cancelRun: async (runId) => {
     const res = await request(`/api/v1/runs/${runId}/cancel`, {

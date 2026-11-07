@@ -24,7 +24,7 @@ const NEEDS_ACTION = new Set(['draft', 'awaiting_approval']);
 const READY = new Set(['approved', 'approved_to_publish']);
 const PUBLISHED = new Set(['published', 'scheduled', 'publishing']);
 
-export default function Strategy({ items = [], loading, onRegenerate, onStatusChange, onGenerate, regenerating }) {
+export default function Strategy({ items = [], loading, onRegenerate, onStatusChange, onGenerate, regenerating, isGenerating = false }) {
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState({});
   const [busy, setBusy] = useState(null);
@@ -248,6 +248,8 @@ export default function Strategy({ items = [], loading, onRegenerate, onStatusCh
                               size="sm"
                               icon={Sparkles}
                               loading={itemBusy}
+                              disabled={isGenerating || itemBusy}
+                              title={isGenerating ? 'AI sedang memproses generasi lain' : undefined}
                               onClick={() => handleGenerate(item)}
                             >
                               Buat konten ini

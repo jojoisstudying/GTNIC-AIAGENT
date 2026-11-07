@@ -612,9 +612,35 @@ def list_layouts(role: Optional[str] = None, approved_only: bool = True):
     }
 
 
+def _get_active_running_run(session, stale_minutes: int = 45):
+    """Mengecek apakah ada run yang sedang aktif berjalan agar tidak terjadi tabrakan proses / rate-limit AI."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+    rows = session.scalars(
+        select(Run).where(Run.status == "running").order_by(desc(Run.started_at)).limit(10)
+    ).all()
+    for run in rows:
+        last = session.scalars(
+            select(Event).where(Event.run_id == run.id).order_by(desc(Event.id)).limit(1)
+        ).first()
+        ref = (last.ts if last else run.started_at)
+        if ref and not ref.tzinfo:
+            ref = ref.replace(tzinfo=timezone.utc)
+        if ref is None or ref >= cutoff:
+            return run
+    return None
+
+
 @app.post("/api/v1/runs/generate", dependencies=[Depends(auth.verify_api_key)])
 def create_run(req: TriggerRunRequest, background_tasks: BackgroundTasks):
     """Memicu pembuatan konten carousel secara otonom oleh AI Agent."""
+    with SessionLocal() as session:
+        active = _get_active_running_run(session)
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"AI Agent sedang memproses konten lain ('{active.topic[:40]}...'). Mohon tunggu hingga proses tersebut selesai agar tidak terjadi tabrakan atau pembatasan kuota API."
+            )
+
     brand = pipeline.load_brand()
     # Buat context run lebih awal untuk mencatat status 'running' di database
     ctx = create_run_context(req.topic, brand)
@@ -1261,6 +1287,14 @@ def list_system_assets(status: Optional[str] = None):
 @app.post("/api/v1/runs/generate-video", dependencies=[Depends(auth.verify_api_key)])
 def create_video_run(req: VideoRunRequest, background_tasks: BackgroundTasks):
     """Memicu pipeline pembuatan short-form video vertikal (Script -> TTS -> B-Roll -> Assembly -> QC)."""
+    with SessionLocal() as session:
+        active = _get_active_running_run(session)
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"AI Agent sedang memproses konten lain ('{active.topic[:40]}...'). Mohon tunggu hingga proses tersebut selesai agar rendering video dan kuota AI berjalan lancar."
+            )
+
     brand = pipeline.load_brand()
     ctx = create_run_context(req.topic, brand)
     run_id = ctx.run_id
@@ -1483,6 +1517,13 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction, request
 def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks, force: bool = False):
     """Memulai pipeline post otomatis langsung dari item strategi kalender yang telah disetujui."""
     with SessionLocal() as session:
+        active = _get_active_running_run(session)
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"AI Agent sedang memproses konten lain ('{active.topic[:40]}...'). Mohon tunggu hingga proses tersebut selesai."
+            )
+
         item = session.get(ContentStrategyItem, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Item strategi tidak ditemukan")

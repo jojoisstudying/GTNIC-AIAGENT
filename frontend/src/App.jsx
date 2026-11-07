@@ -15,6 +15,7 @@ import BrandSetup from './pages/BrandSetup';
 import Enterprise from './pages/Enterprise';
 import Layouts from './pages/Layouts';
 import Settings from './pages/Settings';
+import Automation from './pages/Automation';
 
 const LAST_RUN_KEY = 'agent-sosmed:last-run-id';
 const POLL_INTERVAL_MS = 1500;
@@ -771,6 +772,13 @@ export default function App() {
             onOpenSettings={() => navigate('settings')}
           />
         );
+      case 'automation':
+        return (
+          <Automation
+            onNotify={notify}
+            onOpenRun={openRun}
+          />
+        );
       case 'runs':
         return (
           <Runs
@@ -809,6 +817,7 @@ export default function App() {
             onRegenerate={() => loadStrategy(true)}
             onStatusChange={handleStrategyStatus}
             onGenerate={handleGenerateFromStrategy}
+            isGenerating={isRunning}
           />
         );
       case 'analytics':

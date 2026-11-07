@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  Calendar,
   CalendarClock,
   CalendarPlus,
   CheckCircle2,
   Clock,
+  ExternalLink,
+  Eye,
   History,
   Loader2,
   Pause,
@@ -26,6 +29,7 @@ import {
   CardHeader,
   EmptyState,
   Field,
+  Modal,
   PageHeader,
   StatCard,
   StatusBadge,
@@ -97,7 +101,7 @@ const stageIndex = (step) => {
 /* ------------------------------------------------------------------ */
 /* Baris jadwal minggu                                                 */
 /* ------------------------------------------------------------------ */
-function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic }) {
+function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic, onReschedule, onPreview }) {
   const Icon = STATUS_ICON[row.status] || Clock;
   const tone = STATUS_TONE[row.status_tone] || STATUS_TONE.neutral;
   const day = dayNameOf(row.date);
@@ -105,6 +109,8 @@ function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.topic || '');
   const canEditTopic = row.kind === 'calendar' && !['published', 'publishing'].includes(row.status);
+  const canReschedule = !['published', 'publishing'].includes(row.status);
+  const hasPreview = Boolean(row.run_id || row.publication_id);
 
   const submitTopic = () => {
     const next = draft.trim();
@@ -169,6 +175,11 @@ function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic }) {
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+        {hasPreview && (
+          <Button size="xs" variant="secondary" icon={Eye} onClick={() => onPreview(row)}>
+            Lihat hasil
+          </Button>
+        )}
         {row.can_approve && row.kind === 'calendar' && (
           <Button size="xs" icon={CheckCircle2} loading={busy === `approve-item-${row.ref_id}`}
             onClick={() => onApprove(row, 'item')}>
@@ -178,6 +189,11 @@ function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic }) {
         {canEditTopic && !editing && (
           <Button size="xs" variant="secondary" onClick={() => { setDraft(row.topic || ''); setEditing(true); }}>
             Ubah topik
+          </Button>
+        )}
+        {canReschedule && (
+          <Button size="xs" variant="secondary" icon={Calendar} onClick={() => onReschedule(row)}>
+            Ubah jadwal
           </Button>
         )}
         {row.can_approve && row.kind === 'publication' && (
@@ -367,6 +383,17 @@ export default function Automation({ onNotify, onOpenRun }) {
   const [approvingAll, setApprovingAll] = useState(false);
   const [filter, setFilter] = useState('upcoming');
 
+  // Modal Ubah Jadwal
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleSlot, setRescheduleSlot] = useState('');
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+
+  // Modal Preview Hasil Konten
+  const [previewTarget, setPreviewTarget] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
@@ -433,6 +460,55 @@ export default function Automation({ onNotify, onOpenRun }) {
       onNotify?.('error', err.message, 'Gagal mengubah topik');
     } finally {
       setBusy(null);
+    }
+  };
+
+  const openRescheduleModal = (row) => {
+    setRescheduleTarget(row);
+    setRescheduleDate(row.date || new Date().toISOString().split('T')[0]);
+    setRescheduleSlot(row.slot || '09:00');
+  };
+
+  const saveReschedule = async () => {
+    if (!rescheduleTarget) return;
+    setRescheduleSaving(true);
+    try {
+      if (rescheduleTarget.kind === 'publication' && rescheduleTarget.publication_id) {
+        const iso = `${rescheduleDate}T${rescheduleSlot || '09:00'}:00Z`;
+        await api.updatePublication(rescheduleTarget.publication_id, { scheduled_for: iso });
+      } else {
+        const slotText = rescheduleSlot ? `${rescheduleSlot} WIB` : undefined;
+        await api.updateStrategyItem(rescheduleTarget.ref_id, {
+          plan_date: rescheduleDate,
+          scheduled_slot: slotText,
+        });
+      }
+      onNotify?.('success', 'Jadwal tayang berhasil diperbarui.', 'Jadwal Diubah');
+      setRescheduleTarget(null);
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal mengubah jadwal');
+    } finally {
+      setRescheduleSaving(false);
+    }
+  };
+
+  const openPreviewModal = async (row) => {
+    setPreviewTarget(row);
+    setPreviewData(null);
+    setPreviewLoading(true);
+    try {
+      if (row.run_id) {
+        const status = await api.getRunStatus(row.run_id);
+        setPreviewData({ type: 'run', ...status });
+      } else if (row.publication_id) {
+        const pub = await api.getPublication(row.publication_id);
+        setPreviewData({ type: 'publication', ...pub });
+      }
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal memuat pratinjau hasil');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -730,6 +806,8 @@ export default function Automation({ onNotify, onOpenRun }) {
                   onCancel={cancelRow}
                   onPublish={publishRow}
                   onEditTopic={editTopic}
+                  onReschedule={openRescheduleModal}
+                  onPreview={openPreviewModal}
                 />
               ))}
             </ul>
@@ -867,6 +945,152 @@ export default function Automation({ onNotify, onOpenRun }) {
           AI akan membuat konten ini sesuai urutan jadwal. Anda dapat menutup browser — proses berjalan di server.
         </Alert>
       )}
+
+      {/* Modal Ubah Jadwal Tayang */}
+      <Modal
+        open={Boolean(rescheduleTarget)}
+        onClose={() => setRescheduleTarget(null)}
+        title="Ubah Jadwal Tayang"
+        icon={Calendar}
+        description={`Atur ulang tanggal atau jam tayang untuk: ${truncate(rescheduleTarget?.topic, 60)}`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRescheduleTarget(null)}>Batal</Button>
+            <Button loading={rescheduleSaving} onClick={saveReschedule}>Simpan Jadwal</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Tanggal Tayang">
+            <input
+              type="date"
+              className="input"
+              value={rescheduleDate}
+              onChange={(e) => setRescheduleDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Jam Tayang" hint="Format jam:menit (misal: 09:00 atau 18:30)">
+            <input
+              type="time"
+              className="input"
+              value={rescheduleSlot}
+              onChange={(e) => setRescheduleSlot(e.target.value)}
+            />
+          </Field>
+        </div>
+      </Modal>
+
+      {/* Modal Pratinjau Hasil Konten */}
+      <Modal
+        open={Boolean(previewTarget)}
+        onClose={() => { setPreviewTarget(null); setPreviewData(null); }}
+        title="Pratinjau Hasil Konten"
+        icon={Eye}
+        size="lg"
+        description={previewTarget?.topic}
+        footer={
+          <div className="flex w-full items-center justify-between">
+            {previewTarget?.run_id && onOpenRun && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={ExternalLink}
+                onClick={() => {
+                  const runId = previewTarget.run_id;
+                  setPreviewTarget(null);
+                  onOpenRun(runId);
+                }}
+              >
+                Buka di Editor / Riwayat
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => { setPreviewTarget(null); setPreviewData(null); }}>
+              Tutup
+            </Button>
+          </div>
+        }
+      >
+        {previewLoading ? (
+          <div className="flex h-56 flex-col items-center justify-center gap-2 text-ink-muted">
+            <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+            <p className="text-sm">Memuat visual dan caption...</p>
+          </div>
+        ) : !previewData ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="Pratinjau belum tersedia"
+            description="Konten ini mungkin belum selesai digenerate atau belum memiliki aset media."
+          />
+        ) : (
+          <div className="space-y-4">
+            {/* Visual Carousel atau Video */}
+            {previewData.type === 'run' && previewData.video?.url && (
+              <div className="overflow-hidden rounded-xl bg-black">
+                <video src={previewData.video.url} controls className="max-h-[380px] w-full object-contain" />
+              </div>
+            )}
+
+            {previewData.type === 'run' && previewData.design?.slides && previewData.design.slides.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-ink-muted uppercase tracking-wider">
+                  Slide Carousel ({previewData.design.slides.length} slide)
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {previewData.design.slides.map((s, idx) => (
+                    <div key={idx} className="relative h-44 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-canvas">
+                      {s.image_url ? (
+                        <img src={s.image_url} alt={`Slide ${idx + 1}`} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
+                          Slide {idx + 1}
+                        </div>
+                      )}
+                      <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+                        {idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {previewData.type === 'publication' && previewData.image_urls && previewData.image_urls.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-ink-muted uppercase tracking-wider">
+                  Slide Media ({previewData.image_urls.length} gambar)
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {previewData.image_urls.map((url, idx) => (
+                    <div key={idx} className="relative h-44 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-canvas">
+                      <img src={url} alt={`Slide ${idx + 1}`} className="h-full w-full object-cover" />
+                      <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+                        {idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Caption & Hashtag */}
+            <div className="rounded-xl border border-line bg-canvas/70 p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Teks Caption</p>
+              <p className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-ink">
+                {previewData.type === 'publication'
+                  ? previewData.caption
+                  : (previewData.plan?.caption || previewData.video?.suggested_caption || 'Belum ada caption')}
+              </p>
+              {previewData.plan?.hashtags && previewData.plan.hashtags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {previewData.plan.hashtags.map((h, i) => (
+                    <span key={i} className="text-[11px] text-brand-600">#{h.replace(/^#/, '')}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
