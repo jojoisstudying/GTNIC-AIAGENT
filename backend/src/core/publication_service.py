@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.core.db import Approval, ContentStrategyItem, Publication, PostAnalytics, utc_now
+from src.core.db import Approval, ContentStrategyItem, Publication, PostAnalytics, Run, utc_now
 
 log = logging.getLogger("gtnic.publication")
 
@@ -388,6 +388,10 @@ def mark_published(session: Session, pub: Publication, *, media_id: str, permali
         if item:
             item.status = "published"
             item.approval_notes = None
+    if pub.run_id:
+        run_row = session.get(Run, pub.run_id)
+        if run_row and run_row.status == "awaiting_approval":
+            run_row.status = "ok"
     session.add(Approval(
         entity_type="publication", entity_id=str(pub.id), run_id=pub.run_id,
         decision="published", actor="system", actor_type="system",
