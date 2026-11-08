@@ -474,7 +474,8 @@ export default function Automation({ onNotify, onOpenRun }) {
     setRescheduleSaving(true);
     try {
       if (rescheduleTarget.kind === 'publication' && rescheduleTarget.publication_id) {
-        const iso = `${rescheduleDate}T${rescheduleSlot || '09:00'}:00Z`;
+        // Gunakan offset +07:00 (WIB / Asia/Jakarta) agar waktu jam tidak bergeser 7 jam ke UTC
+        const iso = `${rescheduleDate}T${rescheduleSlot || '09:00'}:00+07:00`;
         await api.updatePublication(rescheduleTarget.publication_id, { scheduled_for: iso });
       } else {
         const slotText = rescheduleSlot ? `${rescheduleSlot} WIB` : undefined;

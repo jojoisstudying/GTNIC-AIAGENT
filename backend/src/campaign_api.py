@@ -81,7 +81,7 @@ def create_campaign(req: CampaignIn):
         return _ser(c)
 
 
-@router.get("/campaigns")
+@router.get("/campaigns", dependencies=[Depends(auth.verify_api_key)])
 def list_campaigns(status: Optional[str] = None):
     with SessionLocal() as s:
         q = select(Campaign).order_by(desc(Campaign.id))
@@ -90,7 +90,7 @@ def list_campaigns(status: Optional[str] = None):
         return {"items": [_ser(c) for c in s.scalars(q).all()]}
 
 
-@router.get("/campaigns/{cid}")
+@router.get("/campaigns/{cid}", dependencies=[Depends(auth.verify_api_key)])
 def get_campaign(cid: int):
     with SessionLocal() as s:
         c = _get(s, cid)
@@ -155,7 +155,7 @@ def attach_items(cid: int, req: AttachItems):
         return {"attached": n}
 
 
-@router.get("/analytics/campaigns/{cid}")
+@router.get("/analytics/campaigns/{cid}", dependencies=[Depends(auth.verify_api_key)])
 def campaign_analytics(cid: int):
     with SessionLocal() as s:
         c = _get(s, cid)
@@ -163,7 +163,7 @@ def campaign_analytics(cid: int):
         return {"campaign": _ser(c), "evaluation": evaluate(c, rows), **breakdown(rows)}
 
 
-@router.get("/analytics/breakdown")
+@router.get("/analytics/breakdown", dependencies=[Depends(auth.verify_api_key)])
 def analytics_breakdown(campaign_id: Optional[int] = None, format: Optional[str] = None,
                         pillar: Optional[str] = None, include_simulated: bool = True):
     with SessionLocal() as s:

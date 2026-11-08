@@ -459,7 +459,7 @@ def health_check():
     }
 
 
-@app.get("/api/v1/brand")
+@app.get("/api/v1/brand", dependencies=[Depends(auth.verify_api_key)])
 def get_brand_profile():
     """Mengambil konfigurasi brand, tema warna, dan fakta terverifikasi."""
     try:
@@ -658,7 +658,7 @@ def create_run(req: TriggerRunRequest, background_tasks: BackgroundTasks):
     }
 
 
-@app.get("/api/v1/runs")
+@app.get("/api/v1/runs", dependencies=[Depends(auth.verify_api_key)])
 def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
     """Riwayat run (terbaru dulu) untuk panel history dan daftar yang menunggu approval.
 
@@ -731,7 +731,7 @@ def list_runs(limit: int = 30, offset: int = 0, status: Optional[str] = None):
     return {"total": total, "limit": limit, "offset": offset, "runs": items}
 
 
-@app.get("/api/v1/runs/{run_id}")
+@app.get("/api/v1/runs/{run_id}", dependencies=[Depends(auth.verify_api_key)])
 def get_run_status(run_id: str):
     """Mengecek status proses run, data riset, plan, dan hasil gambar desain."""
     with SessionLocal() as session:
@@ -839,7 +839,7 @@ def get_run_status(run_id: str):
         }
 
 
-@app.get("/api/v1/runs/{run_id}/events")
+@app.get("/api/v1/runs/{run_id}/events", dependencies=[Depends(auth.verify_api_key)])
 def get_run_events(run_id: str):
     """Mengambil riwayat thought process, log agent, dan audit trail untuk panel UI."""
     with SessionLocal() as session:
@@ -1231,7 +1231,7 @@ def _static_url_for(p: str) -> Optional[str]:
     return None
 
 
-@app.get("/api/v1/assets")
+@app.get("/api/v1/assets", dependencies=[Depends(auth.verify_api_key)])
 def list_system_assets(status: Optional[str] = None):
     """Daftar asset talent / cutouts.
 
@@ -1328,7 +1328,7 @@ class EnterpriseProfileUpdate(BaseModel):
     operating_preferences: Dict[str, Any] = Field(default_factory=dict)
 
 
-@app.get("/api/v1/enterprise/profile")
+@app.get("/api/v1/enterprise/profile", dependencies=[Depends(auth.verify_api_key)])
 def get_enterprise_profile_endpoint():
     """Mengambil profil lengkap perusahaan untuk konteks operasional agent."""
     with SessionLocal() as session:
@@ -1414,7 +1414,7 @@ class StrategyItemAction(BaseModel):
     approval_notes: Optional[str] = None
 
 
-@app.get("/api/v1/strategy/calendar")
+@app.get("/api/v1/strategy/calendar", dependencies=[Depends(auth.verify_api_key)])
 def get_strategy_calendar_endpoint(regenerate: bool = False):
     """Melihat kalender 7 hari. GET bersifat read-only; kalender dibuat otomatis hanya jika kosong.
     Parameter ``regenerate`` diabaikan di sini; gunakan POST /api/v1/strategy/calendar/regenerate."""
@@ -1634,7 +1634,7 @@ def _autopilot_research() -> None:
         ctx.close()
 
 
-@app.get("/api/v1/approvals")
+@app.get("/api/v1/approvals", dependencies=[Depends(auth.verify_api_key)])
 def list_approvals_endpoint(limit: int = 100):
     """Audit trail persetujuan (siapa, kapan, keputusan)."""
     with SessionLocal() as session:
@@ -1644,7 +1644,7 @@ def list_approvals_endpoint(limit: int = 100):
                  "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
 
 
-@app.get("/api/v1/integrations")
+@app.get("/api/v1/integrations", dependencies=[Depends(auth.verify_api_key)])
 def list_integrations_endpoint():
     """Status koneksi provider (hanya ada/tidaknya konfigurasi; tidak pernah mengembalikan nilai rahasia)."""
     from src.agents.registry import ADAPTERS
@@ -1664,7 +1664,7 @@ def list_integrations_endpoint():
     return out
 
 
-@app.get("/api/v1/agents")
+@app.get("/api/v1/agents", dependencies=[Depends(auth.verify_api_key)])
 def list_agents_endpoint():
     from src.agents.registry import AGENTS
     return AGENTS
@@ -1751,7 +1751,7 @@ def auth_dev_key(request: Request):
     return {"api_key": configured}
 
 
-@app.get("/api/v1/analytics/dashboard")
+@app.get("/api/v1/analytics/dashboard", dependencies=[Depends(auth.verify_api_key)])
 def get_analytics_dashboard_endpoint(include_simulated: bool = False):
     """Mengambil data performa postingan dan rekomendasi insight berbasis metrik nyata/simulasi transparan."""
     with SessionLocal() as session:

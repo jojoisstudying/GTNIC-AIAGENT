@@ -204,7 +204,7 @@ def _media_from_run(session, run: Run) -> tuple[list[str], str]:
     return slides, ("carousel" if len(slides) > 1 else "image")
 
 
-@router.get("/runs/{run_id}/publication")
+@router.get("/runs/{run_id}/publication", dependencies=[Depends(auth.verify_api_key)])
 def get_run_publication(run_id: str):
     """Status publikasi terkini untuk satu run (dipakai preview konten & polling frontend)."""
     with SessionLocal() as session:
@@ -353,7 +353,7 @@ def cancel_publication(pub_id: int, request: Request):
         return {"ok": True, "publication": _publication_payload(session, pub)}
 
 
-@router.get("/publications")
+@router.get("/publications", dependencies=[Depends(auth.verify_api_key)])
 def list_publications(status: Optional[str] = None, run_id: Optional[str] = None,
                       platform: Optional[str] = None, limit: int = 50):
     """Daftar publikasi dengan filter. Dipakai semua panel UI."""
@@ -376,7 +376,7 @@ def list_publications(status: Optional[str] = None, run_id: Optional[str] = None
                 "statuses": [{"key": s, "label": ps.STATUS_LABELS[s]} for s in ps.STATUSES]}
 
 
-@router.get("/publications/{pub_id}")
+@router.get("/publications/{pub_id}", dependencies=[Depends(auth.verify_api_key)])
 def get_publication(pub_id: int):
     with SessionLocal() as session:
         pub = session.get(Publication, pub_id)
@@ -742,7 +742,7 @@ def _automation_payload(session) -> dict:
     }
 
 
-@router.get("/automation")
+@router.get("/automation", dependencies=[Depends(auth.verify_api_key)])
 def get_automation_center():
     """Semua data Pusat Otomatisasi dalam satu panggilan (settings, ringkasan, antrian, aktivitas)."""
     with SessionLocal() as session:
@@ -792,7 +792,7 @@ def stop_automation(request: Request):
     return _control("stop", request)
 
 
-@router.get("/automation/activity")
+@router.get("/automation/activity", dependencies=[Depends(auth.verify_api_key)])
 def automation_activity(limit: int = 50):
     with SessionLocal() as session:
         return {"items": [automation.serialize_event(e)
@@ -825,7 +825,7 @@ def _metric_block(row: PostAnalytics | None) -> dict:
     }
 
 
-@router.get("/analytics/publications")
+@router.get("/analytics/publications", dependencies=[Depends(auth.verify_api_key)])
 def analytics_publications(limit: int = 50):
     """Daftar konten yang punya media_id Instagram (bisa dipilih untuk melihat performa)."""
     limit = max(1, min(limit, 200))
@@ -851,7 +851,7 @@ def analytics_publications(limit: int = 50):
         return {"total": len(items), "items": items}
 
 
-@router.get("/analytics/publications/{pub_id}")
+@router.get("/analytics/publications/{pub_id}", dependencies=[Depends(auth.verify_api_key)])
 def analytics_publication_detail(pub_id: int):
     """Detail performa satu konten + riwayat snapshot + perbandingan dengan konten lain."""
     with SessionLocal() as session:
@@ -967,7 +967,7 @@ def cancel_run(run_id: str, request: Request):
     return {"ok": True, "status": "cancelled", "run_id": run_id}
 
 
-@router.get("/integrations/instagram/status")
+@router.get("/integrations/instagram/status", dependencies=[Depends(auth.verify_api_key)])
 def instagram_integration_status(live: bool = True):
     """Diagnostik kesiapan publikasi Instagram (tanpa mempublikasikan apa pun)."""
     from src.tools import instagram

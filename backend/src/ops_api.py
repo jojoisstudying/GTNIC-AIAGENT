@@ -26,7 +26,7 @@ def _item(i):
             "next_attempt_at": _aware(i.next_attempt_at).isoformat() if i.next_attempt_at else None}
 
 
-@router.get("/notifications")
+@router.get("/notifications", dependencies=[Depends(auth.verify_api_key)])
 def list_notifications(unread_only: bool = False, limit: int = 50):
     with SessionLocal() as s:
         q = select(Notification).order_by(desc(Notification.id)).limit(max(1, min(limit, 200)))
@@ -70,7 +70,7 @@ def audit_log(limit: int = 100, action: str | None = None):
                            "created_at": _aware(a.created_at).isoformat()} for a in s.scalars(q).all()]}
 
 
-@router.get("/ops/status")
+@router.get("/ops/status", dependencies=[Depends(auth.verify_api_key)])
 def ops_status():
     now = datetime.now(timezone.utc)
     with SessionLocal() as s:

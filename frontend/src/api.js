@@ -25,9 +25,11 @@ const readError = async (res, fallback) => {
 
 // fetch yang membedakan "backend tidak bisa dihubungi" dari error HTTP biasa,
 // supaya toast tidak hanya menampilkan pesan generik.
-const request = async (path, options) => {
+const request = async (path, options = {}) => {
+  const mergedHeaders = protectedHeaders(options.headers || {});
+  const mergedOptions = { ...options, headers: mergedHeaders };
   try {
-    return await fetch(`${API_BASE}${path}`, options);
+    return await fetch(`${API_BASE}${path}`, mergedOptions);
   } catch (err) {
     // AbortError bukan kegagalan koneksi: teruskan apa adanya supaya pemanggil bisa
     // membedakan "dibatalkan pengguna" dari "backend tidak bisa dihubungi".

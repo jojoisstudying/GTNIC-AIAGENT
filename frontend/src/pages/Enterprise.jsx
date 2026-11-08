@@ -4,10 +4,14 @@ import {
   CheckCircle2,
   Circle,
   ClipboardList,
+  Clock,
+  Plus,
   RefreshCw,
   Save,
   ShieldCheck,
+  Sliders,
   Target,
+  Trash2,
 } from 'lucide-react';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, ProgressBar, Textarea } from '../components/ui';
 
@@ -21,13 +25,15 @@ const fromLines = (value) =>
 export default function Enterprise({ profile, setProfile, onSave, saving, loading, error, onReload }) {
   const [pillarsText, setPillarsText] = useState(() => toLines(profile?.content_pillars));
   const [rulesText, setRulesText] = useState(() => toLines(profile?.brand_rules));
+  const [goalsText, setGoalsText] = useState(() => toLines(profile?.business_goals));
   const [initializedFor, setInitializedFor] = useState(profile?.id ?? null);
 
-  // Sinkronkan textarea ketika profil pertama kali dimuat
+  // Sinkronkan form ketika profil pertama kali dimuat
   if (profile && initializedFor !== profile.id) {
     setInitializedFor(profile.id);
     setPillarsText(toLines(profile.content_pillars));
     setRulesText(toLines(profile.brand_rules));
+    setGoalsText(toLines(profile.business_goals));
   }
 
   const checks = useMemo(
@@ -40,6 +46,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
       { label: 'Pilar konten', done: (profile?.content_pillars || []).length > 0 },
       { label: 'Aturan brand', done: (profile?.brand_rules || []).length > 0 },
       { label: 'Target audiens', done: Boolean(profile?.target_audience?.primary_segment) },
+      { label: 'Tujuan bisnis', done: (profile?.business_goals || []).length > 0 },
     ],
     [profile]
   );
@@ -78,7 +85,25 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
       ...profile,
       content_pillars: fromLines(pillarsText),
       brand_rules: fromLines(rulesText),
+      business_goals: fromLines(goalsText),
     });
+  };
+
+  const addProduct = () => {
+    const list = [...(profile.products_services || [])];
+    list.push({ name: '', desc: '', value_prop: '' });
+    setProfile({ ...profile, products_services: list });
+  };
+
+  const updateProduct = (index, patch) => {
+    const list = [...(profile.products_services || [])];
+    list[index] = { ...list[index], ...patch };
+    setProfile({ ...profile, products_services: list });
+  };
+
+  const removeProduct = (index) => {
+    const list = (profile.products_services || []).filter((_, i) => i !== index);
+    setProfile({ ...profile, products_services: list });
   };
 
   return (
@@ -158,6 +183,165 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                   value={rulesText}
                   onChange={(event) => setRulesText(event.target.value)}
                   placeholder={'Jangan pakai klaim berlebihan\nSelalu sebutkan sumber data'}
+                />
+              </Field>
+            </div>
+
+            <div className="space-y-4 border-t border-line pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Katalog Produk & Layanan</h3>
+                  <p className="text-xs text-ink-muted">AI akan mempromosikan atau mengaitkan konten dengan produk ini.</p>
+                </div>
+                <Button size="xs" variant="secondary" icon={Plus} onClick={addProduct}>
+                  Tambah Produk
+                </Button>
+              </div>
+
+              {(profile.products_services || []).length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-ink-muted">
+                  Belum ada produk/layanan yang ditambahkan. Klik &quot;Tambah Produk&quot; untuk memasukkan produk bisnis Anda.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {(profile.products_services || []).map((prod, idx) => (
+                    <div key={idx} className="relative rounded-xl border border-line bg-canvas p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Input
+                          placeholder="Nama Produk / Layanan (misal: Enterprise AI Automation)"
+                          value={prod.name || ''}
+                          className="font-medium text-sm"
+                          onChange={(e) => updateProduct(idx, { name: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeProduct(idx)}
+                          className="text-ink-muted hover:text-danger-600 p-1"
+                          title="Hapus produk"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <Input
+                        placeholder="Deskripsi singkat produk"
+                        value={prod.desc || ''}
+                        className="text-xs"
+                        onChange={(e) => updateProduct(idx, { desc: e.target.value })}
+                      />
+                      <Input
+                        placeholder="Nilai jual / Value proposition (misal: Hemat biaya operasional 40%)"
+                        value={prod.value_prop || ''}
+                        className="text-xs"
+                        onChange={(e) => updateProduct(idx, { value_prop: e.target.value })}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 border-t border-line pt-4">
+              <Field
+                label="Target Audiens (Segmen Utama)"
+                htmlFor="ent-audience"
+                hint="Siapa audiens yang Anda targetkan?"
+              >
+                <Input
+                  id="ent-audience"
+                  value={profile.target_audience?.primary_segment || ''}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      target_audience: {
+                        ...(profile.target_audience || {}),
+                        primary_segment: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Contoh: Pemilik UMKM, Manajer Operasional, CTO"
+                />
+              </Field>
+
+              <Field
+                label="Masalah Utama Audiens (Pain Points)"
+                htmlFor="ent-pain-points"
+                hint="Pisahkan dengan koma"
+              >
+                <Input
+                  id="ent-pain-points"
+                  value={(profile.target_audience?.pain_points || []).join(', ')}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      target_audience: {
+                        ...(profile.target_audience || {}),
+                        pain_points: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
+                      },
+                    })
+                  }
+                  placeholder="Contoh: Biaya operasional tinggi, Waktu terbatas"
+                />
+              </Field>
+            </div>
+
+            <Field
+              label="Tujuan Bisnis (Business Goals)"
+              htmlFor="ent-goals"
+              hint="Satu tujuan per baris. Contoh: Membangun reputasi brand, Lead generation untuk konsultasi."
+            >
+              <Textarea
+                id="ent-goals"
+                rows={3}
+                value={goalsText}
+                onChange={(e) => setGoalsText(e.target.value)}
+                placeholder={'Brand awareness\nLead generation konsultasi\nEdukasi pasar'}
+              />
+            </Field>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 border-t border-line pt-4">
+              <Field
+                label="Mode Alur Persetujuan (Approval Workflow)"
+                hint="Bagaimana konten divalidasi sebelum diposting"
+              >
+                <select
+                  className="input"
+                  value={profile.approval_workflow?.default_mode || 'autonomous_routine'}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      approval_workflow: {
+                        ...(profile.approval_workflow || {}),
+                        default_mode: e.target.value,
+                        autonomy_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="autonomous_routine">Otonom Rutin (Review opsional)</option>
+                  <option value="manual_review">Wajib Persetujuan Manusia</option>
+                  <option value="strict_governance">Tata Kelola Ketat (Multi-stage review)</option>
+                </select>
+              </Field>
+
+              <Field
+                label="Target Frekuensi Mingguan"
+                hint="Jumlah postingan yang ditargetkan per minggu"
+              >
+                <input
+                  type="number"
+                  min="1"
+                  max="14"
+                  className="input"
+                  value={profile.operating_preferences?.target_weekly_posts || 5}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      operating_preferences: {
+                        ...(profile.operating_preferences || {}),
+                        target_weekly_posts: Number(e.target.value) || 5,
+                      },
+                    })
+                  }
                 />
               </Field>
             </div>
