@@ -257,12 +257,10 @@ def _execute_resume_task(run_id: str):
             session.add(design_row)
 
             run_row = session.get(Run, run_id)
-            if design_result.get("pending_review"):
-                run_row.status = "awaiting_approval"
+            if design_result.get("ok"):
+                run_row.status = "ok"
             elif design_result.get("missing_poses"):
                 run_row.status = "awaiting_assets"
-            elif design_result.get("ok"):
-                run_row.status = "ok"  # semua pose sudah disetujui & desain lulus -> siap diposting
             else:
                 run_row.status = "qc_failed"
             run_row.finished_at = datetime.now(timezone.utc)
@@ -428,8 +426,6 @@ def _execute_video_pipeline_task(run_id: str, topic: str, duration: int, fresh: 
             "issues": list(result.issues),
         }
         status = "ok" if result.ok else "failed"
-        if result.ok:
-            status = "awaiting_approval"
         error = None if result.ok else "; ".join(result.issues) or "QC video gagal"
         _save_video_result(run_id, payload, status, ctx=ctx, error=error)
         ctx.emit("info", "run_finished", step="video", status=status,

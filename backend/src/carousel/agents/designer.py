@@ -173,12 +173,12 @@ def run(plan: dict, brand: dict, out_dir, on_step=print, *, ctx: RunContext | No
             if old_generated:
                 try:
                     staged = cloudflare_pose_generator.stage_cutout_from_asset(old_generated, ctx=ctx)
-                    if not any(a["id"] == staged["id"] for a in pending_review):
-                        staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
-                        pending_review.append({"id": staged["id"], "pose": tags[0], "path": staged["path"],
-                                               "qc": staged_qc})
-                    # Do not render an old factory-background image while its cutout awaits review.
-                    photo = None
+                    staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
+                    if staged_qc.get("ok"):
+                        photo = staged["path"]
+                    else:
+                        warnings.append(f"Cutout pose {tags} tidak lolos QC: {staged_qc.get('issues')}")
+                        photo = None
                 except Exception as exc:
                     warnings.append(f"Cutout pose {tags} gagal dibuat lokal: {exc}")
         elif tags and not photo:
@@ -186,32 +186,33 @@ def run(plan: dict, brand: dict, out_dir, on_step=print, *, ctx: RunContext | No
             if old_generated:
                 try:
                     staged = cloudflare_pose_generator.stage_cutout_from_asset(old_generated, ctx=ctx)
-                    if not any(a["id"] == staged["id"] for a in pending_review):
-                        staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
-                        pending_review.append({"id": staged["id"], "pose": tags[0], "path": staged["path"],
-                                               "qc": staged_qc})
+                    staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
+                    if staged_qc.get("ok"):
+                        photo = staged["path"]
                 except Exception as exc:
                     warnings.append(f"Cutout pose {tags} gagal dibuat lokal: {exc}")
-        legacy_was_staged = any(a["pose"] in tags for a in pending_review)
         tags_to_generate = [tag for tag in tags if tag not in generated_pose_tags]
-        if (generation_enabled and person_id and tags_to_generate and not legacy_was_staged
+        if (generation_enabled and person_id and tags_to_generate
                 and (not photo or asset_library.is_placeholder(photo))):
             for tag in tags_to_generate:
                 generated_pose_tags.add(tag)
-                try:
-                    staged = (cloudflare_pose_generator.generate_pose(person_id, tag, ctx=ctx)
-                              if ctx else cloudflare_pose_generator.generate_pose(person_id, tag))
-                    staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
-                    staged["qc"] = staged_qc
-                    if staged["status"] == "pending_review" and not any(a["id"] == staged["id"] for a in pending_review):
-                        pending_review.append({"id": staged["id"], "pose": tag, "path": staged["path"],
-                                               "qc": staged_qc})
-                except Exception as exc:
-                    warnings.append(f"Pose {tag} belum bisa digenerate: {exc}")
-            # A generated result is pending until reviewed, so continue using only an approved library item.
-            photo = asset_library.find_pose(tags)
-            if photo and asset_library.is_placeholder(photo):
-                photo = None
+                # Retry AI loop up to 2 times if QC fails
+                for attempt in range(2):
+                    try:
+                        staged = (cloudflare_pose_generator.generate_pose(person_id, tag, force=(attempt > 0), ctx=ctx)
+                                  if ctx else cloudflare_pose_generator.generate_pose(person_id, tag, force=(attempt > 0)))
+                        staged_qc = cloudflare_pose_generator.quality_check_generated(staged["path"])
+                        if staged_qc.get("ok"):
+                            photo = staged["path"]
+                            break
+                        else:
+                            warnings.append(f"Pose {tag} percobaan {attempt+1} gagal QC: {staged_qc.get('issues')}")
+                    except Exception as exc:
+                        warnings.append(f"Pose {tag} percobaan {attempt+1} gagal digenerate: {exc}")
+            if not photo:
+                photo = asset_library.find_pose(tags)
+                if photo and asset_library.is_placeholder(photo):
+                    photo = None
         if tags and not photo:
             missing += tags
         on_step(f"[designer] slide {i}/{total} ({role}) pose={tags or '-'} -> {photo or 'tanpa foto'}")

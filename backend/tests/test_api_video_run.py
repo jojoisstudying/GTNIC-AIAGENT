@@ -65,7 +65,7 @@ def test_success_marks_run_ok_and_stores_video(env, monkeypatch):
 
     with factory() as s:
         run = s.get(Run, run_id)
-        assert run.status == "awaiting_approval"
+        assert run.status == "ok"
         assert run.finished_at is not None
         design = s.scalars(select(Design).where(Design.run_id == run_id)).one()
         assert design.plan_id is None
@@ -88,7 +88,7 @@ def test_get_run_status_exposes_video_url(env, monkeypatch):
 
     body = api.get_run_status(run_id)
     assert body["format"] == "video"
-    assert body["status"] == "awaiting_approval"
+    assert body["status"] == "ok"
     assert body["video"]["url"] == f"/static/output/reels/reels_{run_id}.mp4"
     assert body["design"] is None
 

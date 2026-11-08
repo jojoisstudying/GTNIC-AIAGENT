@@ -256,17 +256,14 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             ctx.emit("info", "design_saved", step="designer", status="ok" if design_result.get("ok") else "failed",
                      detail={"version": design_version + 1, "ok": bool(design_result.get("ok"))})
 
-        # FIX: samakan dengan _execute_resume_task di api.py (pose belum ada -> awaiting_assets),
-        # tetapi jangan menahan run kalau pose memang tidak bisa dibuat (mis. foto referensi kosong).
         design_out = out.get("design") or {}
-        pending_review = design_out.get("pending_review") or []
         missing_poses = design_out.get("missing_poses") or []
-        if pending_review:
-            status = "awaiting_approval"
+        if design_out and design_out.get("ok"):
+            status = "ok"
         elif missing_poses and _pose_generation_available(brand):
             status = "awaiting_assets"
-        elif design_out and design_out.get("ok"):
-            status = "awaiting_approval"
+        elif not design_out.get("ok"):
+            status = "failed"
         else:
             status = "ok"
         run_row = _close_run(session, ctx, status)

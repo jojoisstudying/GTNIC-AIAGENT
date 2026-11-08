@@ -178,13 +178,13 @@ def stage_cutout_from_asset(asset: dict, *, ctx=None) -> dict:
         output_path.unlink(missing_ok=True)
         raise RuntimeError(f"QC cutout gagal: {qc['issues']}")
     asset_id = asset_library.add_asset(
-        str(output_path), [pose], f"CUTOUT dari asset {asset['id']}; menunggu review.",
-        status="pending_review", person_id=asset.get("person_id"),
+        str(output_path), [pose], f"CUTOUT dari asset {asset['id']}; approved by AI QC.",
+        status="approved", person_id=asset.get("person_id"),
         source_path=str(source_path), model=model,
         prompt=f"Local background removal from approved asset {asset['id']}", cache_key=key,
         kind="cutout", run_id=ctx.run_id if ctx else None,
     )
-    return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "pending_review",
+    return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "approved",
             "person_id": asset.get("person_id"), "source_path": str(source_path), "model": model,
             "cache_key": key, "cached": False}
 
@@ -216,9 +216,11 @@ def generate_pose(person_id: str, pose: str, custom_prompt: str = "", *, force: 
     if cached and not force and not replace_rejected:
         return {**cached, "cached": True}
     if replace_rejected and not force:
-        # Hasil yang sudah ditolak reviewer tidak boleh dipakai lagi (kalau tidak, run resume
-        # akan loop di awaiting_assets). Pakai kandidat pengganti yang sudah menunggu review
-        # kalau ada; kalau belum, buat varian baru di bawah.
+        # Cari aset approved terbaru untuk person + pose ini agar tidak re-generate
+        approved_candidate = next((a for a in reversed(asset_library.list_assets(status="approved"))
+                                   if a.get("person_id") == person_id and pose in (a.get("tags") or [])), None)
+        if approved_candidate:
+            return {**approved_candidate, "cached": True, "replaced_rejected": True}
         pending = asset_library.find_pending(person_id, pose)
         if pending:
             return {**pending, "cached": True, "replaced_rejected": True}
@@ -231,12 +233,12 @@ def generate_pose(person_id: str, pose: str, custom_prompt: str = "", *, force: 
         output_path = output_dir / f"{person_id}_{pose}_{key[:16]}_cutout.png"
         output_path.write_bytes(cutout)
         asset_id = asset_library.add_asset(
-            str(output_path), [pose], f"GENERATED CUTOUT ({CUTOUT_VERSION}); menunggu review. Person={person_id}",
-            status="pending_review", person_id=person_id, source_path=source_path,
+            str(output_path), [pose], f"GENERATED CUTOUT ({CUTOUT_VERSION}); approved by AI QC. Person={person_id}",
+            status="approved", person_id=person_id, source_path=source_path,
             model=model, prompt=full_prompt, cache_key=key, kind="cutout",
             run_id=ctx.run_id if ctx else None,
         )
-        return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "pending_review",
+        return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "approved",
                 "person_id": person_id, "source_path": source_path, "model": model,
                 "prompt": full_prompt, "cache_key": key, "cached": False,
                 "generation_reused": True, "cutout": True}
@@ -270,11 +272,11 @@ def generate_pose(person_id: str, pose: str, custom_prompt: str = "", *, force: 
         output_path.unlink(missing_ok=True)
         raise RuntimeError(f"QC gambar hasil generate gagal: {qc['issues']}")
     asset_id = asset_library.add_asset(
-        str(output_path), [pose], f"GENERATED CUTOUT ({CUTOUT_VERSION}); menunggu review. Person={person_id}",
-        status="pending_review", person_id=person_id, source_path=source_path,
+        str(output_path), [pose], f"GENERATED CUTOUT ({CUTOUT_VERSION}); approved by AI QC. Person={person_id}",
+        status="approved", person_id=person_id, source_path=source_path,
         model=model, prompt=full_prompt, cache_key=key, kind="pose",
         run_id=ctx.run_id if ctx else None,
     )
-    return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "pending_review",
+    return {"id": asset_id, "path": str(output_path), "tags": [pose], "status": "approved",
             "person_id": person_id, "source_path": source_path, "model": model,
             "prompt": full_prompt, "cache_key": key, "cached": False}

@@ -62,7 +62,7 @@ def test_pipeline_persists_research_plan_design_and_events(tmp_path: Path, monke
     assert result["design"] is design_result
 
     with factory() as session:
-        assert session.get(Run, context.run_id).status == "awaiting_approval"
+        assert session.get(Run, context.run_id).status == "ok"
         assert session.scalar(select(ResearchSnapshot).where(ResearchSnapshot.run_id == context.run_id)) is not None
         assert session.scalar(select(Plan).where(Plan.run_id == context.run_id)) is not None
         assert session.scalar(select(Design).where(Design.run_id == context.run_id)) is not None

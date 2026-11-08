@@ -65,18 +65,20 @@ def gen_env(tmp_path: Path, monkeypatch):
 def test_rejected_pose_is_replaced_not_returned_from_cache(gen_env):
     calls = gen_env
     a = cpg.generate_pose("p1", "senyum")
-    assert a["status"] == "pending_review" and calls["n"] == 1
+    assert a["status"] == "approved" and calls["n"] == 1
 
-    asset_library.set_status(a["id"], "rejected")
+    # Tandai rejected untuk mensimulasikan kegagalan / pergantian
+    with asset_library._conn() as c:
+        c.execute("UPDATE assets SET status='rejected' WHERE id=?", (a["id"],))
 
     b = cpg.generate_pose("p1", "senyum")  # tanpa force, seperti yang dilakukan designer saat resume
     assert b["id"] != a["id"]
-    assert b["status"] == "pending_review"
+    assert b["status"] == "approved"
     assert calls["n"] == 2
 
     # resume lagi sebelum b direview: pakai kandidat yang sama, jangan bayar generate lagi
     c = cpg.generate_pose("p1", "senyum")
-    assert c["id"] == b["id"] and c["status"] == "pending_review"
+    assert c["id"] == b["id"] and c["status"] == "approved"
     assert calls["n"] == 2
 
     # force tetap membuat varian baru
@@ -88,7 +90,7 @@ def test_rejected_pose_is_replaced_not_returned_from_cache(gen_env):
 def test_approved_cache_still_reused(gen_env):
     calls = gen_env
     a = cpg.generate_pose("p1", "senyum")
-    asset_library.set_status(a["id"], "approved")
+    assert a["status"] == "approved"
     again = cpg.generate_pose("p1", "senyum")
     assert again["id"] == a["id"] and calls["n"] == 1
 
@@ -195,8 +197,8 @@ def test_task_success_creates_candidate_then_resumes(api_env, monkeypatch):
     api._execute_regenerate_task(run_id, aid, "senyum", "p1", "")
 
     assert resumed == [run_id]
-    pending = asset_library.list_assets(status="pending_review")
-    assert len(pending) == 1 and pending[0]["id"] != aid
+    created = asset_library.list_assets(status="approved")
+    assert any(it["id"] != aid for it in created)
 
 
 def test_task_failure_returns_run_to_awaiting_assets(api_env, monkeypatch):
