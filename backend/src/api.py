@@ -114,10 +114,28 @@ slides_dir = config.OUTPUT_DIR / "slides"
 slides_dir.mkdir(parents=True, exist_ok=True)
 reels_dir = config.OUTPUT_DIR / "reels"
 reels_dir.mkdir(parents=True, exist_ok=True)
+
+# Pastikan folder gallery, assets, dan data ada agar import & startup tidak gagal pada fresh clone
+gallery_dir = config.ROOT / "gallery"
+gallery_dir.mkdir(parents=True, exist_ok=True)
+
+assets_dir = config.ROOT / "assets"
+assets_dir.mkdir(parents=True, exist_ok=True)
+
+data_people_dir = config.ROOT / "data" / "people"
+data_people_dir.mkdir(parents=True, exist_ok=True)
+
+data_assets_dir = config.ROOT / "data" / "assets"
+data_assets_dir.mkdir(parents=True, exist_ok=True)
+
 app.mount("/static/output", StaticFiles(directory=str(config.OUTPUT_DIR)), name="output")
-app.mount("/static/gallery", StaticFiles(directory=str(config.ROOT / "gallery")), name="gallery")
-app.mount("/static/assets", StaticFiles(directory=str(config.ROOT / "assets")), name="brand_assets")
-app.mount("/static/data", StaticFiles(directory=str(config.ROOT / "data")), name="data_assets")
+app.mount("/static/gallery", StaticFiles(directory=str(gallery_dir)), name="gallery")
+app.mount("/static/assets", StaticFiles(directory=str(assets_dir)), name="brand_assets")
+
+# Keamanan: Mount subdirektori media saja (people & assets), JANGAN mengekspos seluruh data/
+# karena data/ memuat SQLite database (app.db) dan file internal lainnya.
+app.mount("/static/data/people", StaticFiles(directory=str(data_people_dir)), name="data_people")
+app.mount("/static/data/assets", StaticFiles(directory=str(data_assets_dir)), name="data_assets")
 
 # Hasil `npm run build` di frontend/. Kalau ada, backend menyajikan UI di "/"
 # supaya API dan halaman web satu origin (tanpa proxy Vite / konfigurasi CORS).
