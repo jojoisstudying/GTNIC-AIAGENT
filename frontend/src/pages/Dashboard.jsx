@@ -16,7 +16,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, mediaUrl } from '../api';
 import { Badge, Button, Card, CardHeader, EmptyState, LoadingCards, PageHeader, StatCard, StatusBadge } from '../components/ui';
 import { BarChart } from '../components/Chart';
 import {
@@ -462,7 +462,7 @@ export default function Dashboard({ brand, brandForm, apiKeySet, apiKeyRequired 
                       >
                         <span className="flex h-14 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-canvas">
                           {run.thumbnail_url ? (
-                            <img src={run.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            <img src={mediaUrl(run.thumbnail_url)} alt="" className="h-full w-full object-cover" loading="lazy" />
                           ) : run.format === 'video' ? (
                             <Play className="h-5 w-5 text-brand-500" aria-hidden="true" />
                           ) : (
