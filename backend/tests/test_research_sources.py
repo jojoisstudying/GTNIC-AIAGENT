@@ -223,12 +223,14 @@ def test_reference_failure_has_readable_indonesian_message():
     msg = planner.summarize_issues(_ref_issues(["https://evil.example/fake"]))
     assert "tidak tersedia dalam hasil riset" in msg
     assert "research_used" not in msg and "{" not in msg
-    assert "coba kembali" in msg.lower()
+    assert "riset ulang" in msg.lower()
 
 
 def test_other_validation_failure_message_is_also_readable():
     msg = planner.summarize_issues(["caption kosong atau lebih dari 2200 karakter"])
-    assert msg.startswith("Rencana konten gagal divalidasi") and "research_used" not in msg
+    assert msg.startswith("Konten belum berhasil disusun")
+    assert "research_used" not in msg
+    assert "caption kosong" not in msg
 
 
 def test_validate_still_rejects_other_rule_violations():

@@ -52,7 +52,9 @@ CLAIM_PATTERNS = [
     r"\bmenurunkan (?:gula darah|tekanan darah|kolesterol|berat badan)\b",
     r"\bmencegah penyakit\b", r"\bmenyembuhkan\b",
     r"\bmeningkatkan (?:produktivitas|output|efisiensi|hasil|performa|fokus|kualitas)\b",
-    r"\b(?:lebih|jauh lebih) (?:cepat|sehat|produktif)\b",
+    # "Lebih cepat" alone is contextual, not automatically a guaranteed claim.
+    r"\b(?:dijamin|pasti|terbukti)\s+(?:jauh\s+)?lebih cepat\b",
+    r"\b(?:lebih|jauh lebih) (?:sehat|produktif)\b",
 ]
 
 SYSTEM = "Kamu Creative Director social media untuk sebuah perusahaan. Output HANYA JSON valid, tanpa teks lain."
@@ -1119,27 +1121,21 @@ def _fit_planner_static(static: dict, max_tokens: int) -> dict:
 # ---------------------------------------------------------------- orkestrasi
 
 def summarize_issues(issues: list[str]) -> str:
-    """Pesan Indonesia yang bisa dibaca pengguna untuk kegagalan validasi rencana.
-
-    Isu teknis per aturan tetap disimpan di `issues` (dipakai untuk retry ke LLM dan
-    log), tetapi yang ditampilkan ke pengguna adalah ringkasan yang menjelaskan apa
-    yang salah dan apa langkah berikutnya — tanpa nama variabel internal atau JSON mentah.
-    """
+    """Pesan aman untuk UI; detail validator disimpan untuk debugging internal."""
     items = [str(i) for i in (issues or [])]
-    if not items:
-        return "Rencana konten gagal divalidasi."
 
-    refs = [i for i in items if "research_used" in i]
-    if refs:
-        return ("Rencana konten gagal divalidasi karena AI memakai referensi yang tidak tersedia "
-                "dalam hasil riset. Silakan coba kembali; bila tetap gagal, jalankan riset ulang "
-                "agar daftar sumber terbarui.")
+    if any("research_used" in item for item in items):
+        return (
+            "Konten belum berhasil disusun karena referensi yang digunakan "
+            "tidak tersedia dalam hasil riset. Coba jalankan riset ulang, "
+            "lalu buat konten kembali."
+        )
 
-    if len(items) == 1:
-        return f"Rencana konten gagal divalidasi: {items[0]}. Silakan coba kembali."
-    shown = "; ".join(items[:3])
-    extra = f" (dan {len(items) - 3} masalah lain)" if len(items) > 3 else ""
-    return f"Rencana konten gagal divalidasi: {shown}{extra}. Silakan coba kembali."
+    return (
+        "Konten belum berhasil disusun setelah beberapa percobaan otomatis. "
+        "Coba lagi beberapa saat. Jika masalah berulang, jalankan riset ulang "
+        "atau gunakan topik lain."
+    )
 
 
 def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, ctx=None,

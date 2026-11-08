@@ -1,6 +1,7 @@
 """Tests for schema creation and lossless migration of old asset catalogs."""
 from pathlib import Path
 import sqlite3
+import pytest
 
 from alembic import command
 from alembic.config import Config
@@ -16,8 +17,9 @@ def _alembic_config(database_path: Path) -> Config:
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
     return cfg
 
-
-def test_upgrade_legacy_assets_preserves_rows_and_adds_pipeline_schema(tmp_path: Path) -> None:
+def test_upgrade_legacy_assets_preserves_rows_and_adds_pipeline_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     database_path = tmp_path / "data" / "app.db"
     database_path.parent.mkdir()
     with sqlite3.connect(database_path) as connection:
@@ -28,7 +30,7 @@ def test_upgrade_legacy_assets_preserves_rows_and_adds_pipeline_schema(tmp_path:
             "INSERT INTO assets (id, path, tags, description) VALUES (7, ?, ?, ?)",
             ("data/assets/manual.png", "senyum", "manual approved asset"),
         )
-
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     command.upgrade(_alembic_config(database_path), "head")
 
     engine = create_engine(f"sqlite:///{database_path}")

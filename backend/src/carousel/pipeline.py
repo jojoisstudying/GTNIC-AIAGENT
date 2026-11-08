@@ -202,12 +202,13 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
         if not out.get("ok"):
             # FIX: dulu langsung `return out` -> run stuck 'running' selamanya.
             log.warning("Rencana gagal validasi: %s", out.get("issues"))
-            # Pengguna melihat ringkasan yang jelas & berbahasa Indonesia; rincian teknis
-            # per aturan tetap ada di out["issues"] dan di event planner untuk debugging.
+            # UI menerima pesan generik; detail validator hanya disimpan
+            # untuk retry internal, log server, dan debugging.
             msg = planner.summarize_issues(out.get("issues") or [])
             _close_run(session, ctx, "failed", msg)
             ctx.emit("error", "planner", step="planner", status="failed",
-                     detail={"issues": out.get("issues", []), "message": msg})
+                     detail={"issue_count": len(out.get("issues") or []),
+                             "message": msg})
             out["run_id"] = ctx.run_id
             out["message"] = msg
             return out
