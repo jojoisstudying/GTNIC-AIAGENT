@@ -17,6 +17,7 @@ import {
 import { Alert, Badge, Button, Card, EmptyState, Modal, ProgressBar, StatusBadge } from './ui';
 import { cn } from '../lib/utils';
 import { fmtMoney, publicationMeta, runErrorHint, runStatusMeta } from '../lib/format';
+import { mediaUrl } from '../api';
 
 function PoseReview({ items, approvingAssetId, regeneratingId, resumingRun, pendingLeft, onApprove, onRegenerate, onResume }) {
   return (
@@ -41,7 +42,7 @@ function PoseReview({ items, approvingAssetId, regeneratingId, resumingRun, pend
               <div className="flex items-center gap-2.5">
                 <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-canvas">
                   {item.url ? (
-                    <img src={item.url} alt={`Pose ${item.pose}`} className="h-full w-full object-contain" loading="lazy" />
+                    <img src={mediaUrl(item.url)} alt={`Pose ${item.pose}`} className="h-full w-full object-contain" loading="lazy" />
                   ) : (
                     <ImageIcon className="h-5 w-5 text-ink-subtle" aria-hidden="true" />
                   )}
@@ -245,7 +246,7 @@ export default function ContentPreview({
           {video?.url ? (
             <div className="w-full max-w-[300px] space-y-2">
               <div className="relative w-full overflow-hidden rounded-xl border border-line bg-black shadow-card" style={{ aspectRatio: '9 / 16' }}>
-                <video key={video.url} src={video.url} controls playsInline loop preload="metadata" className="h-full w-full object-contain">
+                <video key={video.url} src={mediaUrl(video.url)} controls playsInline loop preload="metadata" className="h-full w-full object-contain">
                   Browser Anda tidak mendukung pemutar video.
                 </video>
               </div>
@@ -254,7 +255,7 @@ export default function ContentPreview({
                   <Film className="h-3.5 w-3.5" aria-hidden="true" />
                   {video.scenes_count} scene · {Number(video.duration_sec || 0).toFixed(1)} dtk · {Number(video.file_size_mb || 0).toFixed(2)} MB
                 </span>
-                <a href={video.url} download className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline">
+                <a href={mediaUrl(video.url)} download className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline">
                   <Download className="h-3.5 w-3.5" aria-hidden="true" /> Unduh MP4
                 </a>
               </div>
@@ -270,7 +271,7 @@ export default function ContentPreview({
             <div className="w-full max-w-[360px] space-y-2.5">
               <div className="relative w-full overflow-hidden rounded-xl border border-line bg-white shadow-card" style={{ aspectRatio: '4 / 5' }}>
                 <img
-                  src={slide?.image_url}
+                  src={mediaUrl(slide?.image_url)}
                   alt={`Slide ${currentSlideIndex + 1} dari ${slides.length}`}
                   className="h-full w-full object-contain"
                 />
@@ -314,7 +315,7 @@ export default function ContentPreview({
                       index === currentSlideIndex ? 'border-brand-400' : 'border-transparent hover:border-brand-200'
                     )}
                   >
-                    <img src={item.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={mediaUrl(item.image_url)} alt="" className="h-full w-full object-cover" loading="lazy" />
                   </button>
                 ))}
               </div>

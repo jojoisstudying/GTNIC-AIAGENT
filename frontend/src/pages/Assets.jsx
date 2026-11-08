@@ -2,6 +2,7 @@ import { Check, Image as ImageIcon, RefreshCw, Upload } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, PageHeader, Pills, StatusBadge } from '../components/ui';
 import { assetStatusMeta, fmtTime } from '../lib/format';
 import { cn } from '../lib/utils';
+import { mediaUrl } from '../api';
 
 const FILTERS = [
   { key: 'all', label: 'Semua' },
@@ -80,7 +81,7 @@ export default function Assets({
                 <div className="relative aspect-square bg-canvas">
                   {asset.url ? (
                     <img
-                      src={asset.url}
+                      src={mediaUrl(asset.url)}
                       alt={asset.description || `Aset ${asset.id}`}
                       className="h-full w-full object-cover"
                       loading="lazy"

@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { InstagramIcon as Instagram, FacebookIcon as Facebook } from '../components/BrandIcons';
-import { api } from '../api';
+import { api, mediaUrl } from '../api';
 import {
   Alert,
   Badge,
@@ -1027,7 +1027,7 @@ export default function Automation({ onNotify, onOpenRun }) {
             {/* Visual Carousel atau Video */}
             {previewData.type === 'run' && previewData.video?.url && (
               <div className="overflow-hidden rounded-xl bg-black">
-                <video src={previewData.video.url} controls className="max-h-[380px] w-full object-contain" />
+                <video src={mediaUrl(previewData.video.url)} controls className="max-h-[380px] w-full object-contain" />
               </div>
             )}
 
@@ -1040,7 +1040,7 @@ export default function Automation({ onNotify, onOpenRun }) {
                   {previewData.design.slides.map((s, idx) => (
                     <div key={idx} className="relative h-44 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-canvas">
                       {s.image_url ? (
-                        <img src={s.image_url} alt={`Slide ${idx + 1}`} className="h-full w-full object-cover" />
+                        <img src={mediaUrl(s.image_url)} alt={`Slide ${idx + 1}`} className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
                           Slide {idx + 1}

@@ -4,6 +4,18 @@
 // folder dist.
 const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim();
 const API_BASE = RAW_API_BASE.replace(/\/+$/, '');
+export const mediaUrl = (path) => {
+  if (!path) return path;
+
+  try {
+    return new URL(
+      path,
+      `${API_BASE || window.location.origin}/`
+    ).toString();
+  } catch {
+    return path;
+  }
+};
 const API_KEY_STORAGE = 'gtnic-api-key';
 
 const protectedHeaders = (headers = {}) => {
