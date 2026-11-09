@@ -39,12 +39,11 @@ class PexelsClient:
 
         self._rate_limit()
         headers = {"Authorization": self.api_key}
-        params = {
-            "query": query,
-            "per_page": per_page,
-            "orientation": orientation,
-            "size": size,
-        }
+        params = {"query": query, "per_page": per_page}
+        if orientation:      # kosong = semua orientasi (pencarian dilonggarkan)
+            params["orientation"] = orientation
+        if size:
+            params["size"] = size
 
         try:
             resp = requests.get(PEXELS_API_URL, headers=headers, params=params, timeout=12)

@@ -127,11 +127,20 @@ class BRollFetcher:
         Pexels mengurutkan hasil berdasarkan relevansi, jadi tiga teratas diacak (variasi) dan
         sisanya menyusul sebagai cadangan.
         """
-        try:
-            res = self.client.search_videos(query=query, per_page=8, orientation="portrait")
-        except Exception:  # noqa: BLE001 - API down / rate limit: lanjut ke keyword berikutnya
-            return None
-        videos = list((res or {}).get("videos", []) or [])
+        import logging
+        videos: list = []
+        # Bertahap dilonggarkan: portrait+medium -> portrait -> semua orientasi (kompositor memotong ke 9:16).
+        for orient, size in (("portrait", "medium"), ("portrait", None), (None, None)):
+            try:
+                res = self.client.search_videos(query=query, per_page=8, orientation=orient, size=size)
+            except Exception as exc:  # noqa: BLE001 - API down / rate limit: lanjut
+                logging.getLogger(__name__).warning("Pexels search gagal (%s): %s", query, exc)
+                continue
+            if (res or {}).get("error"):
+                logging.getLogger(__name__).warning("Pexels '%s': %s", query, str(res["error"])[:160])
+            videos = list((res or {}).get("videos", []) or [])
+            if videos:
+                break
         top = videos[:3]
         random.shuffle(top)
         for v in top + videos[3:]:
@@ -197,6 +206,16 @@ class BRollFetcher:
             if found:
                 self.last_info.update(source="pexels", query=q)
                 return found
+
+        # 1b. Keyword terlalu spesifik: coba kata terakhirnya saja (mis. "espresso machine pressure" -> "pressure" ->
+        #     lalu kata pertama), supaya scene tetap punya visual.
+        for q in queries:
+            words = q.split()
+            for w in ([words[0], words[-1]] if len(words) > 1 else []):
+                found = self._search_and_download(w, excluded)
+                if found:
+                    self.last_info.update(source="pexels", query=w)
+                    return found
 
         # 2. Pexels gagal / offline: cache keyword mana pun yang belum terpakai
         for q in queries:
