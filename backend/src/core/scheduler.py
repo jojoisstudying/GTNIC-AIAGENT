@@ -83,7 +83,7 @@ def _policy(session) -> dict:
     return autonomy.load_policy(prof.approval_workflow_json if prof else None)
 
 
-MAX_AUTO_RETRY = 3
+MAX_AUTO_RETRY = 5
 
 
 def _retry_count(item) -> int:
@@ -173,6 +173,14 @@ def sync_and_automate(session_factory) -> dict:
                 _auto_prepare_and_schedule_run(s, run, it)
 
             it.updated_at = datetime.now(timezone.utc)
+        if active:
+            # Retry habis -> jangan dibiarkan gagal selamanya: antre ulang otomatis setelah 30 menit.
+            for it in s.scalars(select(ContentStrategyItem).where(
+                    ContentStrategyItem.status == "generation_failed")).all():
+                upd = it.updated_at if it.updated_at.tzinfo else it.updated_at.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - upd > timedelta(minutes=30):
+                    it.approval_notes, it.run_id, it.status = None, None, "approved"
+                    it.updated_at = datetime.now(timezone.utc)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for c in s.scalars(select(Campaign).where(Campaign.status == "active", Campaign.end_date < today)).all():
             c.status = "completed"; c.updated_at = datetime.now(timezone.utc); stats["campaigns_completed"] = stats.get("campaigns_completed", 0) + 1

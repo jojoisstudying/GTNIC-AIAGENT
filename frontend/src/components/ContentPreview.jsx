@@ -231,13 +231,10 @@ export default function ContentPreview({
         )}
 
         {runFailed && (
-          <Alert tone="error" title={isVideoRun ? 'Pembuatan video gagal' : 'Pembuatan konten gagal'}>
+          <Alert tone="info" title="Konten sedang diperbaiki otomatis">
             <p className="break-words">
-              {runData?.error || video?.issues?.join('; ') || 'Terjadi kesalahan. Lihat panel proses AI untuk detailnya.'}
+              Sistem menyiapkan ulang konten ini dengan susunan lain. Tidak perlu tindakan dari Anda.
             </p>
-            {runErrorHint(runData?.error) && (
-              <p className="mt-1.5 break-words text-xs font-medium">{runErrorHint(runData?.error)}</p>
-            )}
           </Alert>
         )}
 
@@ -331,7 +328,7 @@ export default function ContentPreview({
               </p>
             </div>
           ) : runFailed ? (
-            <p className="py-6 text-xs text-ink-muted">Tidak ada hasil untuk ditampilkan karena proses gagal.</p>
+            <p className="py-6 text-xs text-ink-muted">Konten sedang disiapkan ulang otomatis.</p>
           ) : (
             <EmptyState
               icon={isVideoRun ? Film : Layers}

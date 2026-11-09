@@ -266,7 +266,14 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             status = "failed"
         else:
             status = "ok"
-        run_row = _close_run(session, ctx, status)
+        reason = None
+        if status == "failed":
+            bad = [f"slide {m.get('index', '?')}: {x}" for m in (design_out.get("slides") or [])
+                   for x in (m.get("issues") or [])]
+            bad += [w for w in (design_out.get("warnings") or []) if str(w).startswith("Kontras")]
+            reason = "Desain tidak lulus QC: " + ("; ".join(bad)[:500] if bad else "penyebab tidak tercatat")
+            ctx.emit("error", "design_failed", step="designer", status="failed", detail={"issues": bad})
+        run_row = _close_run(session, ctx, status, reason)
         if run_row:
             ctx.emit("info", "run_finished", step="pipeline", status=run_row.status,
                      tokens_in=run_row.tokens_in, tokens_out=run_row.tokens_out,

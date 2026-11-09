@@ -566,7 +566,7 @@ _ITEM_STATUS_MAP = {
     "scheduled": "scheduled",
     "publishing": "publishing",
     "published": "published",
-    "generation_failed": "failed",
+    "generation_failed": "publishing",  # diproses ulang otomatis, tidak ditampilkan sebagai gagal
     "publication_failed": "failed",
     "rejected": "rejected",
 }

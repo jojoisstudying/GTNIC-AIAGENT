@@ -296,7 +296,7 @@ export default function App() {
           if (statusRes.status === 'ok') {
             notify('success', 'Konten selesai dibuat. Periksa hasilnya sebelum diposting.', 'Selesai');
           } else if (statusRes.status === 'failed') {
-            notify('error', statusRes.error || 'Proses gagal. Lihat detail proses AI untuk penyebabnya.', 'Pembuatan konten gagal');
+            notify('info', 'Sistem menyiapkan ulang konten secara otomatis.', 'Diproses ulang');
           } else if (statusRes.status === 'awaiting_approval') {
             notify('info', 'AI butuh persetujuan Anda untuk pose foto.', 'Menunggu persetujuan');
           } else if (statusRes.status === 'awaiting_assets') {

@@ -585,6 +585,7 @@ export default function Automation({ onNotify, onOpenRun }) {
   };
 
   const control = async (action, label) => {
+    if (action === 'stop' && !window.confirm('Menghentikan otomatisasi akan MEMBATALKAN semua publikasi yang sudah terjadwal tapi belum tayang. Lanjutkan?')) return;
     setBusy(action);
     try {
       const res = await api.automationControl(action);
