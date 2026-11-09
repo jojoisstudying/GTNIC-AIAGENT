@@ -145,7 +145,7 @@ export default function Generator({
               id="topic"
               value={topic}
               onChange={(event) => setTopic(event.target.value)}
-              placeholder="Contoh: 5 cara mengatur cashflow usaha kecil saat harga bahan naik"
+              placeholder="Contoh: 5 tips memilih biji kopi segar untuk manual brew di rumah"
               rows={3}
               maxLength={300}
               disabled={isRunning}

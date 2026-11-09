@@ -98,18 +98,18 @@ export default function BrandSetup({
                   id="brand-company"
                   value={brandForm.company}
                   onChange={(event) => update('company', event.target.value)}
-                  placeholder="Contoh: Dapur Bu Sari"
+                  placeholder="Contoh: Kedai Kopi"
                   invalid={companyMissing}
                   maxLength={120}
                 />
               </Field>
 
-              <Field label="Bidang usaha" htmlFor="brand-industry" hint="Contoh: kue rumahan, kopi, jasa desain.">
+              <Field label="Bidang usaha" htmlFor="brand-industry" hint="Contoh: kedai kopi, roastery & kafe, kuliner.">
                 <Input
                   id="brand-industry"
                   value={brandForm.industry}
                   onChange={(event) => update('industry', event.target.value)}
-                  placeholder="Contoh: Kue & pastry rumahan"
+                  placeholder="Contoh: Kedai kopi & roastery lokal"
                   maxLength={160}
                 />
               </Field>
@@ -130,7 +130,7 @@ export default function BrandSetup({
                   id="brand-handle"
                   value={brandForm.handle}
                   onChange={(event) => update('handle', event.target.value)}
-                  placeholder="@dapurpusari"
+                  placeholder="@kedaikopi"
                   maxLength={60}
                 />
               </Field>
@@ -147,20 +147,20 @@ export default function BrandSetup({
                 onChange={(event) => update('description', event.target.value)}
                 rows={3}
                 maxLength={500}
-                placeholder="Contoh: Toko kue rumahan di Bandung yang menjual cake dan pastry tanpa pengawet untuk hadiah dan acara keluarga."
+                placeholder="Contoh: Kedai kopi artisanal yang menyajikan racikan biji kopi nusantara pilihan, aneka pastry hangat, dan suasana santai untuk bekerja maupun berkumpul."
               />
             </Field>
 
             <Field
               label="Target pembaca"
               htmlFor="brand-audience"
-              hint="Contoh: ibu muda 25–40 tahun di kota besar."
+              hint="Contoh: pecinta kopi, pekerja kantoran, mahasiswa."
             >
               <Input
                 id="brand-audience"
                 value={brandForm.audience || ''}
                 onChange={(event) => update('audience', event.target.value)}
-                placeholder="Contoh: keluarga muda, pekerja kantor"
+                placeholder="Contoh: pecinta kopi, pekerja WFH, anak muda & mahasiswa"
                 maxLength={160}
               />
             </Field>
@@ -182,7 +182,7 @@ export default function BrandSetup({
                       <input
                         type="color"
                         aria-label={`Pilih ${field.label}`}
-                        value={HEX.test(brandForm[field.key] || '') ? brandForm[field.key] : '#58c4f5'}
+                        value={HEX.test(brandForm[field.key] || '') ? brandForm[field.key] : '#3E2723'}
                         onChange={(event) => update(field.key, event.target.value)}
                         className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-line bg-surface p-0.5"
                       />

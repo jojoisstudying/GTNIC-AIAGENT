@@ -173,7 +173,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                   rows={4}
                   value={pillarsText}
                   onChange={(event) => setPillarsText(event.target.value)}
-                  placeholder={'Tips praktis\nStudi kasus\nPromo'}
+                  placeholder={'Edukasi Kopi & Brewing Tips\nMenu Spesial & Rekomendasi Barista\nBehind The Scene & Cerita Petani\nPromo & Event Komunitas'}
                 />
               </Field>
               <Field label="Aturan brand" htmlFor="ent-rules" hint="Satu aturan per baris. AI wajib mematuhi aturan ini.">
@@ -182,7 +182,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                   rows={4}
                   value={rulesText}
                   onChange={(event) => setRulesText(event.target.value)}
-                  placeholder={'Jangan pakai klaim berlebihan\nSelalu sebutkan sumber data'}
+                  placeholder={'Gunakan gaya bahasa hangat, ramah, dan bersahabat\nFokus pada kualitas rasa, kesegaran biji, dan suasana nyaman kedai\nSelalu sertakan ajakan berkunjung atau mencoba menu'}
                 />
               </Field>
             </div>
@@ -208,7 +208,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                     <div key={idx} className="relative rounded-xl border border-line bg-canvas p-3.5 space-y-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <Input
-                          placeholder="Nama Produk / Layanan (misal: Enterprise AI Automation)"
+                          placeholder="Nama Produk / Layanan (misal: Kopi Susu Gula Aren Spesial)"
                           value={prod.name || ''}
                           className="font-medium text-sm"
                           onChange={(e) => updateProduct(idx, { name: e.target.value })}
@@ -229,7 +229,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                         onChange={(e) => updateProduct(idx, { desc: e.target.value })}
                       />
                       <Input
-                        placeholder="Nilai jual / Value proposition (misal: Hemat biaya operasional 40%)"
+                        placeholder="Nilai jual / Value proposition (misal: 100% Espresso Arabika & Gula Aren Asli)"
                         value={prod.value_prop || ''}
                         className="text-xs"
                         onChange={(e) => updateProduct(idx, { value_prop: e.target.value })}
@@ -258,7 +258,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                       },
                     })
                   }
-                  placeholder="Contoh: Pemilik UMKM, Manajer Operasional, CTO"
+                  placeholder="Contoh: Pecinta Kopi, Mahasiswa, Pekerja WFH"
                 />
               </Field>
 
@@ -279,7 +279,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                       },
                     })
                   }
-                  placeholder="Contoh: Biaya operasional tinggi, Waktu terbatas"
+                  placeholder="Contoh: Butuh tempat kerja tenang dengan WiFi kencang, Cari kopi berkualitas harga terjangkau"
                 />
               </Field>
             </div>
@@ -294,7 +294,7 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
                 rows={3}
                 value={goalsText}
                 onChange={(e) => setGoalsText(e.target.value)}
-                placeholder={'Brand awareness\nLead generation konsultasi\nEdukasi pasar'}
+                placeholder={'Meningkatkan kunjungan dine-in harian\nMemperkenalkan varian beans baru\nMembangun komunitas penikmat kopi lokal'}
               />
             </Field>
 

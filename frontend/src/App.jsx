@@ -84,9 +84,9 @@ export default function App() {
     audience: '',
     phone: '',
     handle: '',
-    primary_color: '#0f172a',
-    secondary_color: '#f8fafc',
-    accent_color: '#10b981',
+    primary_color: '#3E2723',
+    secondary_color: '#FFF8E7',
+    accent_color: '#8D6E63',
   });
   const [brandSaving, setBrandSaving] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
