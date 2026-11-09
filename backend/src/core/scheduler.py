@@ -83,6 +83,15 @@ def _policy(session) -> dict:
     return autonomy.load_policy(prof.approval_workflow_json if prof else None)
 
 
+MAX_AUTO_RETRY = 3
+
+
+def _retry_count(item) -> int:
+    import re
+    m = re.match(r"\[auto-retry (\d+)/", item.approval_notes or "")
+    return int(m.group(1)) if m else 0
+
+
 def _auto_prepare_and_schedule_run(s, run_row, strategy_item=None):
     """Bila QC lulus di mode Autopilot, otomatis siapkan publikasi dan jadwalkan."""
     from src.core import automation, publication_service as ps
@@ -99,7 +108,7 @@ def _auto_prepare_and_schedule_run(s, run_row, strategy_item=None):
     pub_mode = getattr(auto_set, "publishing_mode", "autopilot") if auto_set else "autopilot"
     req_app = getattr(auto_set, "require_approval", False) if auto_set else False
 
-    if pub_mode == "autopilot" or not req_app:
+    if True:  # tidak ada approval konten/publikasi: hanya ide yang disetujui manusia
         media_urls, detected = _media_from_run(s, run_row)
         if not media_urls:
             log.warning("Autopilot: Run %s belum punya media siap publikasi; penjadwalan ditunda.", run_row.id)
@@ -144,17 +153,20 @@ def sync_and_automate(session_factory) -> dict:
             run = s.get(Run, it.run_id)
             run_status = run.status if run else None
             if run_status in {"failed", "qc_failed", "generation_failed"}:
-                it.status = "generation_failed"
+                # QC gagal -> produksi ulang otomatis (maks MAX_AUTO_RETRY kali), tanpa campur tangan user.
+                tries = _retry_count(it)
+                if active and tries < MAX_AUTO_RETRY:
+                    it.approval_notes = f"[auto-retry {tries + 1}/{MAX_AUTO_RETRY}] {(run.error or run_status)[:200]}"
+                    it.run_id, it.status = None, "approved"
+                else:
+                    it.status = "generation_failed"
                 stats["synced"] += 1
-            elif it.status in {"producing", "running"}:
-                if run_status in {"awaiting_approval", "ok"}:
-                    it.status = "awaiting_approval"; stats["synced"] += 1
-            if it.status == "awaiting_approval" and run_status in {"awaiting_approval", "ok"} \
-                    and autonomy.may_auto_approve(policy, it):
-                it.status, it.approved_by = "approved", "autonomy_policy"; stats["auto_approved"] += 1
-            if it.status == "approved" and it.approved_by and autonomy.may_auto_schedule(policy, it) \
-                    and run_status in {"awaiting_approval", "ok"}:
-                it.status = "scheduled"; stats["auto_scheduled"] += 1
+                it.updated_at = datetime.now(timezone.utc)
+                continue
+            if run_status in {"awaiting_approval", "ok"} and it.status in {"producing", "running", "awaiting_approval"}:
+                # Konten lolos QC -> langsung disetujui otomatis (bukan approval manusia).
+                it.status = "approved"; it.approved_by = it.approved_by or "autopilot"
+                stats["auto_approved"] += 1
 
             # Autopilot mode: otomatis buat baris publikasi dan jadwalkan bila QC lolos
             if active and run and run_status in ("awaiting_approval", "ok"):

@@ -187,7 +187,7 @@ def prepare_publication(run_id: str, req: PreparePublicationRequest, request: Re
 
 def _require_approval(session) -> bool:
     row = automation.get_settings(session, create=False)
-    return True if row is None else bool(row.require_approval)
+    return False  # approval hanya untuk ide; publikasi tidak pernah menunggu approval
 
 
 def _plan_from_run(session, run: Run) -> dict:

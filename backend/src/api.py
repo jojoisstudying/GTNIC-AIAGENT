@@ -57,11 +57,12 @@ async def lifespan(_app):
         ingest_fn = (lambda: ingest_all(SessionLocal)) if config.opt("IG_USER_ID") else None
         autopilot_fn = None
         if config.opt("AUTOPILOT_ENABLED", "true").lower() != "false":
-            autopilot_fn = lambda: autopilot_once(  # noqa: E731
+            _ap = lambda: autopilot_once(  # noqa: E731
                 SessionLocal, _autopilot_produce, _autopilot_strategy, _autopilot_research,
                 lead_hours=int(config.opt("AUTOPILOT_LEAD_HOURS", "48") or 48),
                 max_concurrent=int(config.opt("AUTOPILOT_MAX_CONCURRENT", "1") or 1),
                 stale_minutes=int(config.opt("AUTOPILOT_STALE_MINUTES", "45") or 45))
+            autopilot_fn = lambda: (_autopilot_assets(), _ap())  # noqa: E731
         task = asyncio.create_task(scheduler_loop(
             SessionLocal, publish_run_to_instagram, interval,
             int(config.opt("ANALYTICS_INGEST_INTERVAL_SECONDS", "21600") or 21600), ingest_fn,
@@ -1396,7 +1397,7 @@ def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
                 auto_settings = automation.get_settings(session, create=False)
                 if auto_settings:
                     auto_settings.publishing_mode = mode
-                    auto_settings.require_approval = (mode == "review")
+                    auto_settings.require_approval = False
 
         score = calculate_profile_completeness(req.model_dump())
         prof.completeness_score = score
@@ -1634,6 +1635,31 @@ def _autopilot_produce(item_id: int) -> None:
     target = (_execute_video_pipeline_task, (run_id, gen_topic, 30, False)) if fmt == "video" \
         else (_execute_pipeline_task, (run_id, gen_topic, True, True))
     threading.Thread(target=target[0], args=target[1], daemon=True, name=f"autopilot-{run_id}").start()
+
+
+_ASSET_RESUMED: set = set()
+
+
+def _autopilot_assets() -> None:
+    """Tanpa review manual: setujui pose pending lalu lanjutkan run 'awaiting_assets' (sekali per run)."""
+    import threading
+    from src.carousel.tools import asset_library
+    with SessionLocal() as session:
+        runs = [r.id for r in session.scalars(select(Run).where(Run.status == "awaiting_assets")).all()
+                if r.id not in _ASSET_RESUMED]
+        if not runs:
+            return
+        for a in asset_library.pending_assets():
+            try:
+                asset_library.set_status(a["id"], "approved")
+            except Exception:
+                pass
+        for rid in runs:
+            _ASSET_RESUMED.add(rid)
+            session.get(Run, rid).status = "running"
+        session.commit()
+    for rid in runs:
+        threading.Thread(target=_execute_resume_task, args=(rid,), daemon=True, name=f"resume-{rid}").start()
 
 
 _LAST_STRATEGY_TRY: list = [None]

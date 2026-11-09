@@ -196,12 +196,12 @@ def update_settings(session: Session, payload: dict, *, actor: str = "api_user")
         changed["publishing_mode"] = [getattr(row, "publishing_mode", "autopilot"), mode]
         row.publishing_mode = mode
         # Autopilot -> require_approval = False; review -> require_approval = True
-        row.require_approval = (mode == "review")
+        row.require_approval = False  # approval konten dihapus
 
     if "require_approval" in payload and "publishing_mode" not in payload:
         changed["require_approval"] = [row.require_approval, bool(payload["require_approval"])]
-        row.require_approval = bool(payload["require_approval"])
-        row.publishing_mode = "review" if row.require_approval else "autopilot"
+        row.require_approval = False
+        row.publishing_mode = "autopilot"
 
     if "auto_generate" in payload:
         row.auto_generate = bool(payload["auto_generate"])

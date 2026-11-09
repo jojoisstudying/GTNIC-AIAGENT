@@ -62,6 +62,7 @@ def may_auto_schedule(policy: dict, item) -> bool:
 
 def may_publish(policy: dict, item) -> bool:
     """Boleh dipublikasikan scheduler? Manusia sudah menyetujui, atau kategori rutin otonom."""
-    if item.approved_by == "api_user":
+    # Satu-satunya approval manusia ada di ide (Pusat Otomatisasi). Setelah itu otomatis.
+    if item.approved_by:
         return True
     return is_routine(policy, item)
