@@ -68,6 +68,29 @@ def _is_network_retryable(exc: BaseException) -> bool:
 _TPM_PATTERN = re.compile(r"limit\s*(\d[\d,]*)\D{0,80}?requested\s*(\d[\d,]*)", re.IGNORECASE | re.DOTALL)
 
 
+_TPD_UNTIL: dict[str, float] = {}   # model -> waktu (epoch) kuota harian (TPD) diperkirakan pulih
+
+
+def _note_tpd(model: str, exc: BaseException) -> None:
+    """Catat 429 'tokens per day' beserta estimasi pulihnya, supaya sistem tidak membakar sisa token."""
+    text = _error_message(exc)
+    if "tokens per day" not in text.lower():
+        return
+    m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", text)
+    secs = 3600.0
+    if m and any(m.groups()):
+        secs = int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3) or 0)
+    _TPD_UNTIL[model] = time.time() + secs + 30
+
+
+def tpd_all_blocked() -> bool:
+    """True bila model utama dan model cadangan Groq sama-sama kehabisan kuota harian."""
+    now = time.time()
+    models = {config.opt("GROQ_MODEL", "openai/gpt-oss-120b"), config.opt("FALLBACK_MODEL", "") or ""}
+    models.discard("")
+    return bool(models) and all(_TPD_UNTIL.get(m, 0) > now for m in models)
+
+
 def _is_request_too_large(exc: BaseException) -> bool:
     """True untuk 413 / error TPM Groq ("Request too large ... Limit 8000, Requested 10496").
 
@@ -165,6 +188,10 @@ class LLMClient:
              model: str | None = None, tools: list[dict[str, Any]] | None = None,
              response_format: dict[str, Any] | None = None, **kwargs: Any) -> Any:
         """Groq dulu; bila semua key habis/cooldown: penyedia cadangan (jika diisi), lalu tunggu & coba lagi."""
+        if tpd_all_blocked():
+            alt = self._fallback_chat(messages, step=step, tools=tools, response_format=response_format, **kwargs)
+            if alt is not None:
+                return alt
         for attempt in range(4):
             try:
                 return self._chat_once(messages, step=step, model=model, tools=tools,
@@ -192,29 +219,31 @@ class LLMClient:
         from types import SimpleNamespace
         key = (config.opt("FALLBACK_LLM_API_KEY", "") or "").strip()
         base = (config.opt("FALLBACK_LLM_BASE_URL", "") or "").strip().rstrip("/")
-        fb_model = (config.opt("FALLBACK_LLM_MODEL", "") or "").strip()
-        if not (key and base and fb_model):
+        fb_models = [m.strip() for m in (config.opt("FALLBACK_LLM_MODEL", "") or "").split(",") if m.strip()]
+        if not (key and base and fb_models):
             return None
-        body: dict[str, Any] = {"model": fb_model, "messages": messages}
-        for k_src, k_dst in (("temperature", "temperature"), ("max_completion_tokens", "max_tokens"),
-                             ("tools", "tools"), ("tool_choice", "tool_choice"), ("response_format", "response_format")):
-            if kwargs.get(k_src) is not None:
-                body[k_dst] = kwargs[k_src]
-        try:
-            r = requests.post(f"{base}/chat/completions", json=body, timeout=120,
-                              headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-            if r.status_code != 200:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
-            data = _json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
-            if self.emitter:
-                self.emitter.emit("retry", "fallback_llm", step=step, status="fallback_provider_used",
-                                  detail={"model": fb_model})
-            return data
-        except Exception as exc:  # noqa: BLE001
-            if self.emitter:
-                self.emitter.emit("warn", "fallback_llm", step=step, status="fallback_provider_failed",
-                                  detail={"error": str(exc)[:200]})
-            return None
+        for fb_model in fb_models:          # coba berurutan; model yang sedang ramai (503) dilewati
+            body: dict[str, Any] = {"model": fb_model, "messages": messages}
+            for k_src, k_dst in (("temperature", "temperature"), ("max_completion_tokens", "max_tokens"),
+                                 ("tools", "tools"), ("tool_choice", "tool_choice"),
+                                 ("response_format", "response_format")):
+                if kwargs.get(k_src) is not None:
+                    body[k_dst] = kwargs[k_src]
+            try:
+                r = requests.post(f"{base}/chat/completions", json=body, timeout=120,
+                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+                if r.status_code != 200:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+                data = _json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
+                if self.emitter:
+                    self.emitter.emit("retry", "fallback_llm", step=step, status="fallback_provider_used",
+                                      detail={"model": fb_model})
+                return data
+            except Exception as exc:  # noqa: BLE001
+                if self.emitter:
+                    self.emitter.emit("warn", "fallback_llm", step=step, status="fallback_provider_failed",
+                                      detail={"model": fb_model, "error": str(exc)[:200]})
+        return None
 
     def _chat_once(self, messages: list[dict[str, Any]], *, step: str,
                    model: str | None = None, tools: list[dict[str, Any]] | None = None,
@@ -371,6 +400,7 @@ class LLMClient:
                         messages, arguments, model=model, step=step, tools=tools, exc=exc)
                     continue
                 # If only 1 key is available, don't sleep in unit tests with cooldown duration 0
+                _note_tpd(model, exc)
                 cooldown_dur = self.key_pool.cooldown_seconds
                 if len(self.key_pool.keys) <= 1 and cooldown_dur > 0:
                     time.sleep(min(3, cooldown_dur))
@@ -408,6 +438,7 @@ class LLMClient:
                         messages, arguments, model=model, step=step, tools=tools, exc=exc)
                     continue
                 if status_code in (429, 500, 502, 503, 520, 524):
+                    _note_tpd(model, exc)
                     self.key_pool.cooldown(api_key, duration=self.key_pool.cooldown_seconds or 5.0)
                     key_attempts += 1
                     if self.emitter:

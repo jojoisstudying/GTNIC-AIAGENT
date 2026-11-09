@@ -281,6 +281,15 @@ def run_once(session_factory, publish_fn: Callable[[str], object], now: Optional
     return results
 
 
+def _llm_quota_blocked() -> bool:
+    """Kuota harian Groq habis dan tidak ada penyedia cadangan: jangan mulai run (hanya buang sisa token)."""
+    from src import config
+    from src.core import llm
+    if (config.opt("FALLBACK_LLM_API_KEY", "") or "").strip():
+        return False
+    return llm.tpd_all_blocked()
+
+
 def autopilot_once(session_factory, produce_fn: Callable[[int], object], strategy_fn: Callable[[], object] | None = None,
                    research_fn: Callable[[], object] | None = None, now: Optional[datetime] = None,
                    lead_hours: int = 48, research_every_hours: int = 24, max_concurrent: int = 1,
@@ -306,6 +315,9 @@ def autopilot_once(session_factory, produce_fn: Callable[[int], object], strateg
         if settings is not None:
             lead_hours = settings.lead_hours or lead_hours
             max_concurrent = max(1, min(max_concurrent, settings.frequency_per_week or max_concurrent))
+    if _llm_quota_blocked():
+        stats["skipped_paused"] = 1   # kuota harian LLM habis: tunggu pulih, jangan buang sisa token
+        return stats
     # Run 'running' yang terlalu lama = prosesnya mati (restart server/timeout): tandai gagal agar tidak
     # menggantung selamanya dan tidak memblokir kuota produksi.
     with session_factory() as s:
