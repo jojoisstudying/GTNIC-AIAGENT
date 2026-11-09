@@ -645,9 +645,18 @@ def _get_active_running_run(session, stale_minutes: int = 45):
     return None
 
 
+def _block_manual_generate() -> None:
+    """Saat Pusat Otomatisasi menyala, generate manual dinonaktifkan (semua diproduksi otomatis)."""
+    from src.core import automation
+    with SessionLocal() as s:
+        if automation.automation_active(s):
+            raise HTTPException(status_code=409, detail="Generate manual dinonaktifkan selama Pusat Otomatisasi menyala; ide pending diproduksi otomatis.")
+
+
 @app.post("/api/v1/runs/generate", dependencies=[Depends(auth.verify_api_key)])
 def create_run(req: TriggerRunRequest, background_tasks: BackgroundTasks):
     """Memicu pembuatan konten carousel secara otonom oleh AI Agent."""
+    _block_manual_generate()
     with SessionLocal() as session:
         active = _get_active_running_run(session)
         if active:
@@ -1303,6 +1312,7 @@ def list_system_assets(status: Optional[str] = None):
 @app.post("/api/v1/runs/generate-video", dependencies=[Depends(auth.verify_api_key)])
 def create_video_run(req: VideoRunRequest, background_tasks: BackgroundTasks):
     """Memicu pipeline pembuatan short-form video vertikal (Script -> TTS -> B-Roll -> Assembly -> QC)."""
+    _block_manual_generate()
     with SessionLocal() as session:
         active = _get_active_running_run(session)
         if active:
@@ -1544,6 +1554,7 @@ def update_strategy_item_endpoint(item_id: int, req: StrategyItemAction, request
 @app.post("/api/v1/strategy/calendar/{item_id}/generate", dependencies=[Depends(auth.verify_api_key)])
 def trigger_generation_from_strategy_item(item_id: int, background_tasks: BackgroundTasks, force: bool = False):
     """Memulai pipeline post otomatis langsung dari item strategi kalender yang telah disetujui."""
+    _block_manual_generate()
     with SessionLocal() as session:
         active = _get_active_running_run(session)
         if active:
