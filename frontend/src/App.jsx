@@ -940,7 +940,7 @@ export default function App() {
 
         <footer className="mx-auto w-full max-w-[1400px] px-4 pb-8 pt-2 sm:px-6 lg:px-8">
           <div className="flex flex-col items-center justify-between gap-1.5 border-t border-line pt-4 text-[11px] text-ink-subtle sm:flex-row">
-            <p>GTNIC 2026 · Asisten pemasaran AI untuk UMKM</p>
+            <p>Auto Content Agent · Asisten pemasaran AI untuk UMKM</p>
             <p className="flex items-center gap-1.5">
               <span className={online ? 'h-1.5 w-1.5 rounded-full bg-success-500' : 'h-1.5 w-1.5 rounded-full bg-danger-500'} aria-hidden="true" />
               {online ? 'Backend terhubung' : 'Backend tidak terdeteksi'}

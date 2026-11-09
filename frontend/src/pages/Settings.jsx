@@ -193,7 +193,7 @@ export default function Settings({ apiKeyInput, setApiKeyInput, apiKeySet, apiKe
                 <Info className="h-5 w-5" aria-hidden="true" />
               </span>
               <div>
-                <p className="font-semibold text-ink">GTNIC — Asisten Pemasaran AI untuk UMKM</p>
+                <p className="font-semibold text-ink">Auto Content Agent — Asisten Pemasaran AI untuk UMKM</p>
                 <p className="mt-0.5 text-xs leading-relaxed">
                   Membantu membuat carousel dan video Reels, menyusun kalender konten, memposting ke Instagram, dan
                   membaca performanya.
@@ -206,7 +206,7 @@ export default function Settings({ apiKeyInput, setApiKeyInput, apiKeySet, apiKe
               <li>• AI: pipeline multi-agen untuk riset, desain, dan video</li>
             </ul>
             <p className="text-[11px] leading-relaxed text-ink-subtle">
-              GTNIC 2026 · AI Agents for Enterprise Productivity
+              Auto Content Agent · AI Agents for Enterprise Productivity
             </p>
           </div>
         </Card>

@@ -4,7 +4,7 @@ import { cn } from '../lib/utils';
 
 function LogoMark({ className }) {
   return (
-    <svg viewBox="0 0 40 40" className={className} role="img" aria-label="Logo GTNIC">
+    <svg viewBox="0 0 40 40" className={className} role="img" aria-label="Logo Auto Content Agent">
       <rect width="40" height="40" rx="12" fill="#58C4F5" />
       <path
         d="M27.5 14.2a9 9 0 1 0 1.9 8.1h-8.2v-3.6h12.1v1.8A12.6 12.6 0 1 1 28.8 10l-3 2.8a8.98 8.98 0 0 0 1.7 1.4Z"
@@ -21,7 +21,7 @@ export default function Sidebar({ activeTab, onNavigate, badges = {}, brandName,
       <div className="flex items-center gap-3 border-b border-line px-5 py-4">
         <LogoMark className="h-10 w-10 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold tracking-tight text-ink">GTNIC</p>
+          <p className="truncate text-sm font-bold tracking-tight text-ink">Auto Content Agent</p>
           <p className="truncate text-xs text-ink-muted">Asisten Pemasaran AI</p>
         </div>
         {onClose && (
