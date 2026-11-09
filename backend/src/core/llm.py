@@ -188,13 +188,24 @@ class LLMClient:
              model: str | None = None, tools: list[dict[str, Any]] | None = None,
              response_format: dict[str, Any] | None = None, **kwargs: Any) -> Any:
         """Groq dulu; bila semua key habis/cooldown: penyedia cadangan (jika diisi), lalu tunggu & coba lagi."""
+        def _strip_extra(msgs):
+            """Groq menolak field asing: buang extra_content (milik Gemini) sebelum dikirim ke Groq."""
+            out = []
+            for m in msgs:
+                if isinstance(m, dict) and m.get("tool_calls"):
+                    m = {**m, "tool_calls": [{k: v for k, v in tc.items() if k != "extra_content"}
+                                             if isinstance(tc, dict) else tc for tc in m["tool_calls"]]}
+                out.append(m)
+            return out
+
+        groq_messages = _strip_extra(messages)
         if tpd_all_blocked():
             alt = self._fallback_chat(messages, step=step, tools=tools, response_format=response_format, **kwargs)
             if alt is not None:
                 return alt
         for attempt in range(4):
             try:
-                return self._chat_once(messages, step=step, model=model, tools=tools,
+                return self._chat_once(groq_messages, step=step, model=model, tools=tools,
                                        response_format=response_format, **kwargs)
             except ProviderExhausted:
                 alt = self._fallback_chat(messages, step=step, tools=tools,

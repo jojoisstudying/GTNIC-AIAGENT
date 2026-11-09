@@ -269,11 +269,24 @@ def run(topic: str, industry: str, client=None, max_steps: int = 8, on_step=prin
             final_text = msg.content or ""
             break
 
+        def _plain(o):
+            """SimpleNamespace/objek -> dict polos (untuk extra_content Gemini)."""
+            if hasattr(o, "__dict__"):
+                return {k: _plain(v) for k, v in vars(o).items()}
+            if isinstance(o, dict):
+                return {k: _plain(v) for k, v in o.items()}
+            return o
+
+        def _tc_dict(tc):
+            d = {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            extra = getattr(tc, "extra_content", None)   # Gemini: thought_signature wajib dikirim balik
+            if extra:
+                d["extra_content"] = _plain(extra)
+            return d
+
         messages.append({"role": "assistant", "content": msg.content or "",
-                         "tool_calls": [{"id": tc.id, "type": "function",
-                                         "function": {"name": tc.function.name,
-                                                      "arguments": tc.function.arguments}}
-                                        for tc in msg.tool_calls]})
+                         "tool_calls": [_tc_dict(tc) for tc in msg.tool_calls]})
         for tc in msg.tool_calls:
             name = tc.function.name
             try:
