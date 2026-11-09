@@ -108,8 +108,9 @@ function WeekRow({ row, busy, onApprove, onRetry, onCancel, onPublish, onEditTop
   const fmtLabel = { reel: 'Reels', video: 'Reels', image: 'Gambar', carousel: 'Carousel' }[row.format] || row.format;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.topic || '');
-  const canEditTopic = row.kind === 'calendar' && !['published', 'publishing'].includes(row.status);
-  const canReschedule = !['published', 'publishing'].includes(row.status);
+  // Hanya tampil bila aksinya benar-benar berefek (bukan untuk konten gagal/batal/ditolak/tayang).
+  const canEditTopic = row.kind === 'calendar' && !row.run_id && ['draft', 'needs_approval', 'ready'].includes(row.status);
+  const canReschedule = ['draft', 'needs_approval', 'ready', 'scheduled'].includes(row.status);
   const hasPreview = Boolean(row.run_id || row.publication_id);
 
   const submitTopic = () => {
@@ -183,7 +184,7 @@ function WeekRow({ row, busy, onApprove, onRetry, onCancel, onPublish, onEditTop
         {row.can_retry && (
           <Button size="xs" variant="secondary" icon={RefreshCw} loading={busy === `retry-${row.kind}-${row.ref_id}`}
             onClick={() => onRetry(row)}>
-            Coba produksi ulang
+            {row.kind === 'calendar' ? 'Coba produksi ulang' : 'Coba posting ulang'}
           </Button>
         )}
         {row.can_approve && row.kind === 'calendar' && (
@@ -477,7 +478,12 @@ export default function Automation({ onNotify, onOpenRun }) {
         onNotify?.('success', 'Mempersiapkan produksi ulang konten...', 'Coba Ulang');
       } else if (row.publication_id) {
         // Publikasi gagal: coba setujui & jadwalkan kembali
-        await api.approvePublication(row.publication_id, { publish_now: false });
+        // Jadwal lama sudah lewat -> beri slot baru 2 menit ke depan (backend menolak jadwal masa lalu).
+        const keep = row.scheduled_for && new Date(row.scheduled_for).getTime() > Date.now() + 60000;
+        await api.approvePublication(row.publication_id, {
+          publish_now: false,
+          scheduled_for: keep ? row.scheduled_for : new Date(Date.now() + 2 * 60000).toISOString(),
+        });
         onNotify?.('success', 'Publikasi dijadwalkan ulang.', 'Coba Ulang');
       }
       await load({ silent: true });

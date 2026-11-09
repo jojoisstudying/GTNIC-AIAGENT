@@ -325,18 +325,18 @@ def summary(session: Session) -> dict:
     generated = session.scalar(select(func.count(ContentStrategyItem.id))) or 0
     published = counts.get("published", 0)
 
-    # Hitung kegagalan produksi dari item kalender yang belum/tidak punya publikasi failed
-    calendar_failed = session.scalar(select(func.count(ContentStrategyItem.id)).where(
-        ContentStrategyItem.status.in_(("generation_failed", "publication_failed")))) or 0
-    # Publikasi gagal
+    processed = session.scalar(select(func.count(ContentStrategyItem.id)).where(
+        ContentStrategyItem.status.not_in(("draft", "rejected")))) or 0
     pub_failed = counts.get("failed", 0)
-    total_failed = max(pub_failed, calendar_failed, pub_failed + calendar_failed - (
-        session.scalar(select(func.count(Publication.id)).where(
-            Publication.status == "failed", Publication.strategy_item_id.is_not(None))) or 0
-    ))
+    failed_pub_items = select(Publication.strategy_item_id).where(
+        Publication.status == "failed", Publication.strategy_item_id.is_not(None))
+    calendar_failed = session.scalar(select(func.count(ContentStrategyItem.id)).where(
+        ContentStrategyItem.status.in_(("generation_failed", "publication_failed")),
+        ContentStrategyItem.id.not_in(failed_pub_items))) or 0
+    total_failed = pub_failed + calendar_failed
 
     return {
-        "total_processed": generated,
+        "total_processed": processed,
         "awaiting_approval": counts.get("pending_approval", 0),
         "scheduled": counts.get("scheduled", 0),
         "publishing": counts.get("publishing", 0) + counts.get("intent", 0),

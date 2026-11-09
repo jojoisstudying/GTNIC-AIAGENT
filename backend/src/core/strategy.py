@@ -224,6 +224,13 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
 
     today = datetime.now()
     llm_generated_items = []
+
+    def _norm_topic(x) -> str:
+        return re.sub(r"\W+", " ", str(x or "").lower()).strip()
+    _cut = datetime.now(timezone.utc) - timedelta(days=30)
+    recent_topics = {r for r in session.scalars(select(ContentStrategyItem.topic).where(
+        ContentStrategyItem.created_at >= _cut)).all() if r}
+    recent_norm = {_norm_topic(x) for x in recent_topics}
     win_start, win_end = (today + timedelta(days=1)).strftime("%Y-%m-%d"), (today + timedelta(days=7)).strftime("%Y-%m-%d")
     active_campaigns = session.scalars(select(Campaign).where(
         Campaign.status == "active", Campaign.start_date <= win_end, Campaign.end_date >= win_start
@@ -260,6 +267,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
                 f"Bukti riset dan sumber: {research_context}\n"
                 f"Kandidat topik riset (urut relevansi; patuhi risk_notes, jangan jadikan fakta bila tanpa sumber): {candidates_context}\n"
                 f"Kampanye aktif: {campaigns_context}\n"
+                f"Topik yang SUDAH dipakai 30 hari terakhir (JANGAN diulang): {json.dumps(sorted(recent_topics)[:40], ensure_ascii=False)}\n"
                 "Jika ada kampanye aktif, alokasikan minimal 3 dari 7 item untuk mendukungnya (isi campaign_id). "
                 "Gunakan 1-2 kandidat riset yang paling relevan bila cocok.\n\n"
                 "Buat rencana 7 hari (offset_days 1 sampai 7) dengan campuran format carousel, single_image (1 gambar), dan video Reels, "
@@ -374,6 +382,7 @@ def generate_7day_strategy(session: Session, reset: bool = False, use_llm: bool 
 
     plan_templates = _apply_research_and_campaigns(plan_templates, bool(llm_generated_items),
                                                    research_candidates, active_campaigns, today)
+    plan_templates = [x for x in plan_templates if _norm_topic(x["topic"]) not in recent_norm]
     items = []
     for tmpl in plan_templates:
         p_date = (today + timedelta(days=tmpl["offset_days"])).strftime("%Y-%m-%d")

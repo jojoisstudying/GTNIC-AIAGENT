@@ -273,6 +273,8 @@ def approve(session: Session, pub: Publication, *, actor: str = "api_user",
         if pub.status == SCHEDULED:
             return pub
     now = utc_now()
+    if pub.status == FAILED:
+        pub.publish_attempts = 0  # persetujuan ulang manual = kesempatan baru (claim memblokir >= MAX_ATTEMPTS)
     pub.approved_at = pub.approved_at or now
     pub.approved_by = pub.approved_by or actor
     if pub.error:

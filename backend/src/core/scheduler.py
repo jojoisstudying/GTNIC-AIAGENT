@@ -102,6 +102,7 @@ def _auto_prepare_and_schedule_run(s, run_row, strategy_item=None):
     if pub_mode == "autopilot" or not req_app:
         media_urls, detected = _media_from_run(s, run_row)
         if not media_urls:
+            log.warning("Autopilot: Run %s belum punya media siap publikasi; penjadwalan ditunda.", run_row.id)
             return
         plan = _plan_from_run(s, run_row)
         item = strategy_item or s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
@@ -126,13 +127,17 @@ def _auto_prepare_and_schedule_run(s, run_row, strategy_item=None):
                 item.approved_by = item.approved_by or "autopilot"
                 s.commit()
             log.info("Autopilot: Run %s otomatis dijadwalkan untuk %s", run_row.id, scheduled_for)
+        else:
+            log.warning("Autopilot: Run %s tidak mendapat slot jadwal (cek hari/jam di Pengaturan Otomatisasi).", run_row.id)
 
 
 def sync_and_automate(session_factory) -> dict:
     """Sinkron status hasil produksi, lalu terapkan kebijakan autonomi (auto-approve / auto-schedule)."""
+    from src.core import automation
     stats = {"synced": 0, "auto_approved": 0, "auto_scheduled": 0}
     with session_factory() as s:
         policy = _policy(s)
+        active = automation.automation_active(s)
         for it in s.scalars(select(ContentStrategyItem).where(
                 ContentStrategyItem.status.in_(["producing", "running", "awaiting_approval", "approved"]),
                 ContentStrategyItem.run_id.is_not(None))).all():
@@ -152,7 +157,7 @@ def sync_and_automate(session_factory) -> dict:
                 it.status = "scheduled"; stats["auto_scheduled"] += 1
 
             # Autopilot mode: otomatis buat baris publikasi dan jadwalkan bila QC lolos
-            if run and run_status in ("awaiting_approval", "ok"):
+            if active and run and run_status in ("awaiting_approval", "ok"):
                 _auto_prepare_and_schedule_run(s, run, it)
 
             it.updated_at = datetime.now(timezone.utc)

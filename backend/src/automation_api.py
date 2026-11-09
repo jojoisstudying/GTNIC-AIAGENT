@@ -628,6 +628,7 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
     punya baris publikasi. Urut berdasarkan waktu tayang/jadwal.
     """
     pubs = session.scalars(select(Publication).order_by(Publication.id.asc())).all()
+    _tz = timedelta(hours=automation._tz_offset_hours(automation._ensure(session).timezone))
 
     covered_runs: set[str] = set()
     covered_items: set[int] = set()
@@ -646,6 +647,7 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
         due = _parse_dt(pub.scheduled_for.isoformat()) if pub.scheduled_for else None
         published = _parse_dt(pub.published_at.isoformat()) if pub.published_at else None
         when_dt = due or published
+        when_local = (when_dt + _tz) if when_dt else None
         rows.append(_week_row(
             kind="publication",
             ref_id=pub.id,
@@ -655,13 +657,13 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
             topic=(item.topic if item and item.topic else (pub.caption or "").split("\n")[0]),
             fmt=pub.media_type or (item.format if item else "carousel"),
             status_key=_PUB_STATUS_MAP.get(pub.status, "draft"),
-            date=when_dt.strftime("%Y-%m-%d") if when_dt else (item.plan_date if item else None),
-            slot=when_dt.strftime("%H:%M") if when_dt else _slot_hm(item.scheduled_slot if item else None),
+            date=when_local.strftime("%Y-%m-%d") if when_local else (item.plan_date if item else None),
+            slot=when_local.strftime("%H:%M") if when_local else _slot_hm(item.scheduled_slot if item else None),
             when=_iso(pub.scheduled_for) or _iso(pub.published_at),
             can_approve=pub.status in _BATCH_PUB_STATUSES and not pub.media_id,
             can_retry=pub.status == ps.FAILED and not pub.media_id,
             can_cancel=pub.status in ps.CANCELLABLE,
-            can_publish=pub.status in (ps.PENDING_APPROVAL, ps.SCHEDULED, ps.FAILED) and not pub.media_id,
+            can_publish=pub.status in (ps.SCHEDULED, ps.FAILED) and not pub.media_id and pub.approved_at is not None,
             permalink=pub.permalink,
             media_id=pub.media_id,
             error=pub.error,
@@ -693,15 +695,26 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
             approved_by=item.approved_by,
         ))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) + _tz
     # Batasi kalender: mulai dari awal minggu (atau hari ini - 1 hari) hingga 7 hari ke depan
     min_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
     max_date = (now + timedelta(days=days)).strftime("%Y-%m-%d")
-    filtered_rows = [r for r in rows if not r.get("date") or (min_date <= r.get("date") <= max_date)]
+    # Status final (tayang/gagal/batal/ditolak) tetap tampil 30 hari; hanya yang aktif dibatasi jendela minggu.
+    hist_min = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+    final_keys = {"published", "failed", "cancelled", "rejected"}
+
+    def _keep(r):
+        d = r.get("date")
+        if not d:
+            return True
+        if r.get("status") in final_keys:
+            return hist_min <= d <= max_date
+        return min_date <= d <= max_date
+    filtered_rows = [r for r in rows if _keep(r)]
 
     filtered_rows.sort(key=lambda r: ((r.get("date") or "9999-12-31"), (r.get("slot") or "99:99"),
                                      r.get("kind") != "publication", r.get("ref_id") or 0))
-    return filtered_rows[: max(1, min(days * 20, 200))]
+    return filtered_rows[-200:]
 
 
 def live_status(session, *, limit: int = 5, stale_minutes: int = 45) -> dict:

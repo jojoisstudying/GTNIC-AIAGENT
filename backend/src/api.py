@@ -1570,7 +1570,7 @@ def trigger_generation_from_strategy_item(item_id: int, background_tasks: Backgr
         if item.format == "video":
             background_tasks.add_task(_execute_video_pipeline_task, run_id, gen_topic, 30, False)
         else:
-            background_tasks.add_task(_execute_pipeline_task, run_id, gen_topic, False, True)
+            background_tasks.add_task(_execute_pipeline_task, run_id, gen_topic, True, True)
 
         return {"status": "producing", "run_id": run_id, "strategy_item_id": item.id}
 
@@ -1632,11 +1632,20 @@ def _autopilot_produce(item_id: int) -> None:
         fmt = item.format
         run_id, gen_topic = _begin_item_generation(session, item)
     target = (_execute_video_pipeline_task, (run_id, gen_topic, 30, False)) if fmt == "video" \
-        else (_execute_pipeline_task, (run_id, gen_topic, False, True))
+        else (_execute_pipeline_task, (run_id, gen_topic, True, True))
     threading.Thread(target=target[0], args=target[1], daemon=True, name=f"autopilot-{run_id}").start()
 
 
+_LAST_STRATEGY_TRY: list = [None]
+
+
 def _autopilot_strategy() -> None:
+    # Cooldown 30 menit: cegah panggilan LLM tiap menit bila semua topik terfilter duplikat.
+    now = datetime.now(timezone.utc)
+    last = _LAST_STRATEGY_TRY[0]
+    if last and (now - last) < timedelta(minutes=30):
+        return
+    _LAST_STRATEGY_TRY[0] = now
     with SessionLocal() as session:
         generate_7day_strategy(session, reset=True)
 
@@ -1657,6 +1666,17 @@ def _autopilot_research() -> None:
             if run:
                 run.status = "ok" if res.get("ok") else "failed"
             session.commit()
+    except Exception as exc:
+        # Jangan biarkan run riset menggantung 'running' (memblokir generate manual dengan 409).
+        try:
+            with SessionLocal() as session:
+                run = session.get(Run, ctx.run_id)
+                if run and run.status == "running":
+                    run.status, run.error = "failed", f"Riset harian gagal: {exc}"[:500]
+                    run.finished_at = datetime.now(timezone.utc)
+                    session.commit()
+        finally:
+            raise
     finally:
         ctx.close()
 
