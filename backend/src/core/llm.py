@@ -207,11 +207,13 @@ class LLMClient:
             try:
                 return self._chat_once(groq_messages, step=step, model=model, tools=tools,
                                        response_format=response_format, **kwargs)
-            except ProviderExhausted:
+            except Exception as exc:  # noqa: BLE001
                 alt = self._fallback_chat(messages, step=step, tools=tools,
                                           response_format=response_format, **kwargs)
                 if alt is not None:
                     return alt
+                if not isinstance(exc, ProviderExhausted):
+                    raise
                 if attempt == 3:
                     raise
                 wait = min(65.0, max(10.0, float(getattr(self.key_pool, "cooldown_seconds", 60.0) or 60.0)))

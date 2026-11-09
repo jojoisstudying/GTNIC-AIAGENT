@@ -84,6 +84,8 @@ def _policy(session) -> dict:
 
 
 MAX_AUTO_RETRY = 5
+MAX_REQUEUE_CYCLES = 3
+_REQUEUE_CYCLES: dict = {}   # item_id -> berapa kali diantre ulang (reset saat server restart)
 
 
 def _retry_count(item) -> int:
@@ -183,9 +185,14 @@ def sync_and_automate(session_factory) -> dict:
             for it in s.scalars(select(ContentStrategyItem).where(
                     ContentStrategyItem.status == "generation_failed")).all():
                 upd = it.updated_at if it.updated_at.tzinfo else it.updated_at.replace(tzinfo=timezone.utc)
-                if datetime.now(timezone.utc) - upd > timedelta(minutes=3 if (it.approval_notes or "").startswith("[rate-wait]") else 30):
-                    it.approval_notes, it.run_id, it.status = None, None, "approved"
+                if datetime.now(timezone.utc) - upd > timedelta(minutes=10 if (it.approval_notes or "").startswith("[rate-wait]") else 30):
+                    n = _REQUEUE_CYCLES.get(it.id, 0) + 1
+                    _REQUEUE_CYCLES[it.id] = n
                     it.updated_at = datetime.now(timezone.utc)
+                    if n > MAX_REQUEUE_CYCLES:
+                        it.status = "needs_check"   # berhenti berputar & membakar token; tampil "Perlu dicek"
+                    else:
+                        it.approval_notes, it.run_id, it.status = None, None, "approved"
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for c in s.scalars(select(Campaign).where(Campaign.status == "active", Campaign.end_date < today)).all():
             c.status = "completed"; c.updated_at = datetime.now(timezone.utc); stats["campaigns_completed"] = stats.get("campaigns_completed", 0) + 1
@@ -293,7 +300,7 @@ def _llm_quota_blocked() -> bool:
 def autopilot_once(session_factory, produce_fn: Callable[[int], object], strategy_fn: Callable[[], object] | None = None,
                    research_fn: Callable[[], object] | None = None, now: Optional[datetime] = None,
                    lead_hours: int = 48, research_every_hours: int = 24, max_concurrent: int = 1,
-                   stale_minutes: int = 15) -> dict:
+                   stale_minutes: int = 45) -> dict:
     """Pekerjaan otonom (tanpa browser): riset harian, strategi mingguan, produksi item yang mendekati jadwal.
 
     Aman terhadap restart karena semua keputusan diambil dari state database, bukan memori proses.

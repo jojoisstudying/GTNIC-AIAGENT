@@ -240,7 +240,6 @@ class VideoPipeline:
             "issues": qc_result.issues,
         }, status="ok" if qc_result.ok else "failed")
 
-        qc_result.ok = True  # mode demo: QC video informatif saja
         return qc_result
 
 

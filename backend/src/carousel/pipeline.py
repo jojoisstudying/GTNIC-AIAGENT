@@ -157,7 +157,23 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
     try:
         ctx.emit("info", "run_started", step="pipeline", detail={"topic": topic})
         raise_if_cancelled(ctx.run_id)
-        if fresh:
+        _has_saved = False
+        try:
+            _has_saved = bool(RESEARCH_FILE.exists() and json.loads(RESEARCH_FILE.read_text(encoding="utf-8")).get("ok"))
+        except Exception:
+            _has_saved = False
+        cached = None   # riset harian (Pusat Otomatisasi) dipakai ulang: tidak riset per item
+        try:
+            from datetime import datetime, timedelta, timezone
+            snap = session.scalars(select(ResearchSnapshot).where(ResearchSnapshot.ok.is_(True))
+                                   .order_by(ResearchSnapshot.id.desc())).first()
+            if snap is not None:
+                at = snap.created_at if snap.created_at.tzinfo else snap.created_at.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - at < timedelta(hours=int(config.opt("RESEARCH_REUSE_HOURS", "24") or 24)):
+                    cached = json.loads(snap.data_json)
+        except Exception:
+            cached = None
+        if cached is None and (fresh or not _has_saved):
             on_step("== Agent 1: Research ==")
             res = research_agent.run(topic, brand.get("industry", ""), on_step=on_step, ctx=ctx,
                                      brand_facts=brand.get("verified_facts"))
@@ -176,7 +192,7 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             research = res["data"]
         else:
             on_step("== Agent 1: memakai hasil riset tersimpan (hemat kuota) ==")
-            research = load_saved_research()
+            research = cached if cached is not None else load_saved_research()
             session.add(ResearchSnapshot(run_id=ctx.run_id,
                 data_json=json.dumps(research, ensure_ascii=False), warnings_json="[]", ok=True))
             session.commit()

@@ -543,6 +543,7 @@ WEEK_STATUS = {
     "publishing": ("Sedang diproses", "brand"),
     "published": ("Sudah tayang", "success"),
     "failed": ("Gagal", "danger"),
+    "stuck": ("Perlu dicek", "neutral"),
     "cancelled": ("Dibatalkan", "neutral"),
     "rejected": ("Ditolak", "neutral"),
 }
@@ -567,6 +568,7 @@ _ITEM_STATUS_MAP = {
     "publishing": "publishing",
     "published": "published",
     "generation_failed": "publishing",  # diproses ulang otomatis, tidak ditampilkan sebagai gagal
+    "needs_check": "stuck",
     "publication_failed": "failed",
     "rejected": "rejected",
 }
