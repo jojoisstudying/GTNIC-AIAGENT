@@ -429,7 +429,7 @@ export default function Automation({ onNotify, onOpenRun }) {
 
   // Polling ringan: status berubah dari backend (scheduler/eksekusi manual).
   useEffect(() => {
-    const id = window.setInterval(() => load({ silent: true }), 15000);
+    const id = window.setInterval(() => load({ silent: true }), 5000);
     return () => window.clearInterval(id);
   }, [load]);
 

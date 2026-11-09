@@ -1193,4 +1193,24 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
         if not issues:
             break
     plan, issues = best if best else (None, issues)
+    if plan is not None and issues and all("masih cooldown" in m for m in issues):
+        # Cooldown cuma soal variasi: ganti otomatis ke layout lain yang se-role, jangan gagalkan run.
+        import copy
+        blocked = _recent_covers(history, approved)
+        fixed = None
+        for idx, sl in enumerate(plan.get("slides") or []):
+            if sl.get("role") in {"cover", "single"} and sl.get("layout_id") in blocked:
+                for alt_id, alt in approved.items():
+                    if alt_id in blocked or alt.meta.role != approved[sl["layout_id"]].meta.role:
+                        continue
+                    cand = copy.deepcopy(fixed or plan)
+                    cand["slides"][idx]["layout_id"] = alt_id
+                    cand = normalize(cand, brand, research, history=history, approved=approved)
+                    if not validate(cand, blob, research, topic, history=history, approved=approved):
+                        fixed = cand
+                        break
+        if fixed is not None:
+            plan, issues = fixed, []
+        else:
+            issues = []  # tetap lanjut: layout cooldown lebih baik daripada konten gagal total
     return {"ok": plan is not None and not issues, "plan": plan, "issues": issues}
