@@ -1340,6 +1340,7 @@ class EnterpriseProfileUpdate(BaseModel):
     contact_info: Dict[str, Any] = Field(default_factory=dict)
     approval_workflow: Dict[str, Any] = Field(default_factory=dict)
     operating_preferences: Dict[str, Any] = Field(default_factory=dict)
+    publishing_mode: Optional[str] = Field("autopilot", description="autopilot | review")
 
 
 @app.get("/api/v1/enterprise/profile", dependencies=[Depends(auth.verify_api_key)])
@@ -1361,6 +1362,7 @@ def get_enterprise_profile_endpoint():
             "contact_info": json.loads(prof.contact_info_json or "{}"),
             "approval_workflow": json.loads(prof.approval_workflow_json or "{}"),
             "operating_preferences": json.loads(prof.operating_preferences_json or "{}"),
+            "publishing_mode": getattr(prof, "publishing_mode", "autopilot") or "autopilot",
             "completeness_score": prof.completeness_score,
             "updated_at": prof.updated_at.isoformat() if prof.updated_at else None
         }
@@ -1384,6 +1386,16 @@ def update_enterprise_profile_endpoint(req: EnterpriseProfileUpdate):
         prof.contact_info_json = json.dumps(req.contact_info, ensure_ascii=False)
         prof.approval_workflow_json = json.dumps(req.approval_workflow, ensure_ascii=False)
         prof.operating_preferences_json = json.dumps(req.operating_preferences, ensure_ascii=False)
+        if req.publishing_mode:
+            mode = req.publishing_mode.strip().lower()
+            if mode in ("autopilot", "review"):
+                prof.publishing_mode = mode
+                # Sinkronkan ke AutomationSettings
+                from src.core import automation
+                auto_settings = automation.get_settings(session, create=False)
+                if auto_settings:
+                    auto_settings.publishing_mode = mode
+                    auto_settings.require_approval = (mode == "review")
 
         score = calculate_profile_completeness(req.model_dump())
         prof.completeness_score = score
@@ -1712,8 +1724,11 @@ def seed_demo_analytics_endpoint():
 def ingest_analytics_endpoint():
     """Tarik metrik Instagram asli untuk publikasi 'published' (30 hari terakhir) lalu hasilkan insight bila data cukup."""
     from src.core.analytics_ingest import ingest_all
-    if not config.opt("IG_USER_ID"):
-        raise HTTPException(status_code=409, detail="IG_USER_ID belum dikonfigurasi.")
+    if not config.opt("IG_USER_ID") or not config.opt("IG_TOKEN"):
+        raise HTTPException(
+            status_code=409,
+            detail="Instagram belum terhubung: IG_USER_ID dan IG_TOKEN wajib dikonfigurasi di backend/.env."
+        )
     result = ingest_all(SessionLocal)
     if result.get("new_insights"):
         result["next_step"] = "Insight baru dari data nyata akan dipakai saat POST /api/v1/strategy/calendar/regenerate."
@@ -1782,6 +1797,9 @@ def get_analytics_dashboard_endpoint(include_simulated: bool = False):
         total_saves = sum(r.saves or 0 for r in records)
         total_comments = sum(r.comments or 0 for r in records)
 
+        total_posts_in_db = session.scalar(select(func.count(Publication.id)).where(Publication.status == "published")) or 0
+        ig_configured = bool(config.opt("IG_USER_ID") and config.opt("IG_TOKEN"))
+
         return {
             "summary": {
                 "total_posts_tracked": len(records),
@@ -1791,7 +1809,9 @@ def get_analytics_dashboard_endpoint(include_simulated: bool = False):
                 "data_source": records[0].source if records else "none",
                 "is_simulated": all(r.is_simulated for r in records) if records else False,
                 "pending_ingestion": sum(r.ingestion_status == "pending" for r in records),
-                "last_sync": next((r.data_timestamp.isoformat() for r in records if r.data_timestamp), None)
+                "last_sync": next((r.data_timestamp.isoformat() for r in records if r.data_timestamp), None),
+                "ig_configured": ig_configured,
+                "total_published_posts": total_posts_in_db,
             },
             "posts": [
                 {

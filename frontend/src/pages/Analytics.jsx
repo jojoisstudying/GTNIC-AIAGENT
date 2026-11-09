@@ -197,8 +197,20 @@ export default function Analytics({ analyticsData, loading, error, onRefresh }) 
           <div className="p-5">
             <EmptyState
               icon={Info}
-              title="Belum ada postingan terpantau"
-              description="Metrik akan terisi setelah konten dipublikasikan dan data diambil dari Instagram."
+              title={
+                !summary?.ig_configured
+                  ? 'Akun Instagram belum terhubung'
+                  : summary?.total_published_posts === 0
+                  ? 'Belum ada konten yang dipublikasikan'
+                  : 'Metrik Instagram belum disinkronkan'
+              }
+              description={
+                !summary?.ig_configured
+                  ? 'Konfigurasikan IG_USER_ID dan IG_TOKEN di backend/.env atau menu Pengaturan agar analitik dapat ditarik.'
+                  : summary?.total_published_posts === 0
+                  ? 'Publikasikan konten terlebih dahulu melalui Pusat Otomatisasi untuk melihat performa analitik.'
+                  : 'Konten sudah tayang tetapi metrik belum ditarik. Klik "Ambil semua metrik" di bawah untuk menyinkronkan data dari Meta.'
+              }
               className="border-0 bg-transparent"
             />
           </div>
@@ -284,7 +296,7 @@ export default function Analytics({ analyticsData, loading, error, onRefresh }) 
 
       {/* Performa per postingan (media ID Instagram asli) — bagian terpisah dari
           ringkasan analitik di atas karena sumber datanya endpoint berbeda. */}
-      <PublicationAnalytics />
+      <PublicationAnalytics onIngestSuccess={onRefresh} />
     </div>
   );
 }

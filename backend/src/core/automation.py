@@ -31,6 +31,7 @@ DEFAULT_SLOTS = ["09:00", "19:00"]
 DEFAULT_FORMATS = ["carousel"]
 PLATFORM_LABELS = {"instagram": "Instagram", "facebook": "Facebook"}
 FACEBOOK_AVAILABLE = False
+PUBLISHING_MODES = ("autopilot", "review")
 
 
 def _loads(raw, fallback):
@@ -66,7 +67,8 @@ def get_settings(session: Session, *, create: bool = True) -> AutomationSettings
         frequency_per_week=int(config.opt("AUTOPILOT_FREQUENCY_PER_WEEK", "5") or 5),
         content_formats_json=json.dumps(DEFAULT_FORMATS),
         content_pillars_json="[]",
-        require_approval=True,
+        publishing_mode="autopilot",
+        require_approval=False,
         auto_generate=_env_flag("AUTOPILOT_ENABLED", True),
         lead_hours=int(config.opt("AUTOPILOT_LEAD_HOURS", "24") or 24),
         updated_at=utc_now(),
@@ -102,6 +104,7 @@ def serialize_settings(row: AutomationSettings) -> dict:
         "frequency_per_week": row.frequency_per_week,
         "content_formats": _loads(row.content_formats_json, DEFAULT_FORMATS),
         "content_pillars": _loads(row.content_pillars_json, []),
+        "publishing_mode": getattr(row, "publishing_mode", "autopilot") or "autopilot",
         "require_approval": bool(row.require_approval),
         "auto_generate": bool(row.auto_generate),
         "lead_hours": row.lead_hours,
@@ -186,9 +189,19 @@ def update_settings(session: Session, payload: dict, *, actor: str = "api_user")
         pillars = [str(p).strip() for p in (payload["content_pillars"] or []) if str(p).strip()]
         row.content_pillars_json = json.dumps(pillars[:20])
 
-    if "require_approval" in payload:
+    if "publishing_mode" in payload:
+        mode = str(payload["publishing_mode"]).strip().lower()
+        if mode not in PUBLISHING_MODES:
+            raise ValueError(f"publishing_mode harus salah satu dari: {', '.join(PUBLISHING_MODES)}")
+        changed["publishing_mode"] = [getattr(row, "publishing_mode", "autopilot"), mode]
+        row.publishing_mode = mode
+        # Autopilot -> require_approval = False; review -> require_approval = True
+        row.require_approval = (mode == "review")
+
+    if "require_approval" in payload and "publishing_mode" not in payload:
         changed["require_approval"] = [row.require_approval, bool(payload["require_approval"])]
         row.require_approval = bool(payload["require_approval"])
+        row.publishing_mode = "review" if row.require_approval else "autopilot"
 
     if "auto_generate" in payload:
         row.auto_generate = bool(payload["auto_generate"])

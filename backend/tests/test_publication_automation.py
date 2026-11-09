@@ -286,7 +286,7 @@ def test_automation_center_returns_settings_summary_and_queues(env):
         s.commit()
 
     payload = automation_api.get_automation_center()
-    assert payload["settings"]["require_approval"] is True
+    assert payload["settings"]["publishing_mode"] in ("autopilot", "review")
     assert payload["settings"]["platforms"] == ["instagram"]
     assert payload["summary"]["awaiting_approval"] == 1
     assert payload["summary"]["scheduled"] == 1
@@ -632,3 +632,184 @@ def test_edit_calendar_topic_validates_and_blocks_published(env):
     with pytest.raises(HTTPException) as exc:
         api.update_strategy_item_endpoint(item_id, api.StrategyItemAction(topic="Topik lain yang cukup panjang"))
     assert exc.value.status_code == 409
+
+
+def test_individual_approval_with_valid_schedule(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "test caption"}, media_type="carousel",
+                                image_urls=["https://cdn.test/1.jpg"])
+        pub_id = pub.id
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    res = automation_api.approve_publication(pub_id, request=_req(), req=automation_api.ApproveRequest(publish_now=False, scheduled_for=future))
+    assert res["ok"] is True
+    assert res["status"] == "scheduled"
+    with factory() as s:
+        p = s.get(Publication, pub_id)
+        assert p.status == "scheduled"
+        assert p.scheduled_for is not None
+
+
+def test_individual_approval_without_schedule_raises_error_when_no_slots(env, monkeypatch):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "test"}, media_type="carousel",
+                                image_urls=["https://cdn.test/1.jpg"])
+        pub_id = pub.id
+    # Monkeypatch target schedule returning None
+    monkeypatch.setattr("src.automation_api._schedule_target", lambda session, pub: None)
+    with pytest.raises(HTTPException) as exc:
+        automation_api.approve_publication(pub_id, request=_req(), req=automation_api.ApproveRequest(publish_now=False, scheduled_for=None))
+    assert exc.value.status_code == 400
+    assert "Jadwal publikasi tidak dapat ditentukan" in exc.value.detail
+
+
+def test_autopilot_mode_auto_schedules_after_successful_qc(env):
+    from src.core import scheduler
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        item = ContentStrategyItem(plan_date="2026-11-10", topic="Konten Autopilot QC", format="carousel",
+                                   content_pillar="Tips Praktis", objective="Edukasi", target_segment="Umum",
+                                   scheduled_slot="09:00 WIB", status="producing", run_id=run_id)
+        s.add(item)
+        run = s.get(Run, run_id)
+        run.status = "ok"
+        auto_set = automation.get_settings(s, create=True)
+        auto_set.publishing_mode = "autopilot"
+        auto_set.require_approval = False
+        s.commit()
+
+    # Jalankan sync_and_automate
+    scheduler.sync_and_automate(factory)
+
+    with factory() as s:
+        pub = ps.get_for_run(s, run_id)
+        assert pub is not None
+        assert pub.status == "scheduled"
+        assert pub.scheduled_for is not None
+        cal = s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
+        assert cal.status == "scheduled"
+
+
+def test_review_mode_retains_review_queue(env):
+    from src.core import scheduler
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        item = ContentStrategyItem(plan_date="2026-11-10", topic="Konten Review Mode", format="carousel",
+                                   content_pillar="Tips Praktis", objective="Edukasi", target_segment="Umum",
+                                   scheduled_slot="09:00 WIB", status="producing", run_id=run_id)
+        s.add(item)
+        run = s.get(Run, run_id)
+        run.status = "ok"
+        auto_set = automation.get_settings(s, create=True)
+        auto_set.publishing_mode = "review"
+        auto_set.require_approval = True
+        s.commit()
+
+    # Jalankan sync_and_automate
+    scheduler.sync_and_automate(factory)
+
+    with factory() as s:
+        pub = ps.get_for_run(s, run_id)
+        # Di review mode, publication belum otomatis dijadwalkan
+        assert pub is None or pub.status == "pending_approval"
+
+
+def test_scheduler_ignores_null_or_future_scheduled_for(env, monkeypatch):
+    from src.core import scheduler
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    now = datetime(2026, 11, 10, 8, 0, tzinfo=timezone.utc)
+    with factory() as s:
+        # Pub 1: scheduled_for is None
+        p1 = Publication(run_id=run_id, status="scheduled", platform="instagram",
+                         caption="c", image_urls_json="[]", approved_at=now, scheduled_for=None)
+        # Pub 2: scheduled_for is in future
+        p2 = Publication(run_id="run-future", status="scheduled", platform="instagram",
+                         caption="c", image_urls_json="[]", approved_at=now,
+                         scheduled_for=now + timedelta(hours=2))
+        # Pub 3: scheduled_for is due
+        p3 = Publication(run_id="run-due", status="scheduled", platform="instagram",
+                         caption="c", image_urls_json="[]", approved_at=now,
+                         scheduled_for=now - timedelta(minutes=5))
+        s.add_all([p1, p2, p3])
+        s.commit()
+
+    published_runs = []
+    monkeypatch.setattr("src.agents.publisher.execute_publication", lambda pid, **k: published_runs.append(pid))
+    res = scheduler.run_once(factory, publish_fn=lambda r: None, now=now)
+    # Only p3 should be published
+    assert len(published_runs) == 1
+    with factory() as s:
+        p3_loaded = s.scalars(select(Publication).where(Publication.run_id == "run-due")).first()
+        assert published_runs[0] == p3_loaded.id
+
+
+def test_automation_pause_prevents_publication(env, monkeypatch):
+    from src.core import scheduler
+    factory, run_id, out_dir = env
+    now = datetime(2026, 11, 10, 8, 0, tzinfo=timezone.utc)
+    with factory() as s:
+        p = Publication(run_id=run_id, status="scheduled", platform="instagram",
+                        caption="c", image_urls_json="[]", approved_at=now,
+                        scheduled_for=now - timedelta(minutes=5))
+        s.add(p)
+        auto_set = automation.get_settings(s, create=True)
+        auto_set.enabled = False
+        auto_set.state = "paused"
+        s.commit()
+
+    published = []
+    monkeypatch.setattr("src.agents.publisher.execute_publication", lambda pid, **k: published.append(pid))
+    res = scheduler.run_once(factory, publish_fn=lambda r: None, now=now)
+    assert res == []
+    assert published == []
+
+
+def test_duplicate_scheduling_prevention(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "test"}, media_type="carousel",
+                                image_urls=["https://cdn.test/1.jpg"])
+        pub_id = pub.id
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    # Panggil approve pertama kali
+    res1 = automation_api.approve_publication(pub_id, request=_req(), req=automation_api.ApproveRequest(publish_now=False, scheduled_for=future))
+    assert res1["ok"] is True
+    assert res1["status"] == "scheduled"
+    # Panggil approve kedua kali (idempoten, tidak menduplikasi publikasi)
+    res2 = automation_api.approve_publication(pub_id, request=_req(), req=automation_api.ApproveRequest(publish_now=False, scheduled_for=future))
+    assert res2["ok"] is True
+    assert res2["status"] == "scheduled"
+    with factory() as s:
+        all_pubs = s.scalars(select(Publication).where(Publication.run_id == run_id)).all()
+        assert len(all_pubs) == 1
+
+
+def test_successful_publication_triggers_analytics_eligibility(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "test"}, media_type="carousel",
+                                image_urls=["https://cdn.test/1.jpg"])
+        ps.mark_published(s, pub, media_id="IG_TEST_12345", permalink="https://instagram.com/p/12345")
+        ps.ensure_analytics_row(s, pub, topic="Test Analytics", content_pillar="Tips", fmt="carousel")
+
+    listed = automation_api.analytics_publications()
+    found = [p for p in listed["items"] if p["media_id"] == "IG_TEST_12345"]
+    assert len(found) == 1
+    assert found[0]["publication_id"] == pub.id
+
+
+def test_analytics_ingestion_handles_missing_credentials_and_errors(env, monkeypatch):
+    monkeypatch.setattr("src.config.opt", lambda k, default=None: "" if k in ("IG_USER_ID", "IG_TOKEN") else default)
+    with pytest.raises(HTTPException) as exc:
+        automation_api.ingest_metrics()
+    assert exc.value.status_code == 409
+    assert "Instagram belum terhubung" in exc.value.detail
+

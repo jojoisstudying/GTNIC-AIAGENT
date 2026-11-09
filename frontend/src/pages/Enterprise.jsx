@@ -300,6 +300,25 @@ export default function Enterprise({ profile, setProfile, onSave, saving, loadin
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 border-t border-line pt-4">
               <Field
+                label="Mode Publikasi Otomatis"
+                hint="Tentukan apakah AI langsung menjadwalkan konten setelah QC lulus atau masuk antrean review"
+              >
+                <select
+                  className="input"
+                  value={profile.publishing_mode || 'autopilot'}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      publishing_mode: e.target.value,
+                    })
+                  }
+                >
+                  <option value="autopilot">Autopilot (Otomatis generate, QC, jadwalkan, & publish)</option>
+                  <option value="review">Review Mode (Hanya buat draf & tunggu persetujuan)</option>
+                </select>
+              </Field>
+
+              <Field
                 label="Mode Alur Persetujuan (Approval Workflow)"
                 hint="Bagaimana konten divalidasi sebelum diposting"
               >

@@ -180,6 +180,7 @@ class EnterpriseProfile(Base):
     contact_info_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     approval_workflow_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     operating_preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    publishing_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="autopilot")
     completeness_score: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -351,7 +352,8 @@ class AutomationSettings(Base):
     frequency_per_week: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     content_formats_json: Mapped[str] = mapped_column(Text, nullable=False, default='["carousel"]')
     content_pillars_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    require_approval: Mapped[bool] = mapped_column(nullable=False, default=True)
+    publishing_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="autopilot")  # autopilot | review
+    require_approval: Mapped[bool] = mapped_column(nullable=False, default=False)
     auto_generate: Mapped[bool] = mapped_column(nullable=False, default=True)
     lead_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

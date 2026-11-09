@@ -334,12 +334,22 @@ function SettingsPanel({ value, onSave, saving }) {
       </Field>
 
       <div className="grid gap-3 rounded-xl bg-canvas p-3.5 sm:grid-cols-2">
-        <Switch
-          checked={Boolean(form.require_approval)}
-          onChange={(v) => update({ require_approval: v })}
-          label="Wajib persetujuan sebelum publikasi"
-          description="Sangat disarankan. Bila dimatikan, konten yang dijadwalkan akan tayang tanpa Anda periksa."
-        />
+        <Field label="Mode Publikasi" hint="Autopilot langsung menjadwalkan konten setelah lolos QC">
+          <select
+            className="input text-xs"
+            value={form.publishing_mode || (form.require_approval ? 'review' : 'autopilot')}
+            onChange={(e) => {
+              const val = e.target.value;
+              update({
+                publishing_mode: val,
+                require_approval: val === 'review',
+              });
+            }}
+          >
+            <option value="autopilot">Autopilot (Otomatis Jadwalkan & Publikasikan)</option>
+            <option value="review">Review Mode (Wajib Persetujuan Manusia)</option>
+          </select>
+        </Field>
         <Switch
           checked={Boolean(form.auto_generate)}
           onChange={(v) => update({ auto_generate: v })}
@@ -359,6 +369,7 @@ function SettingsPanel({ value, onSave, saving }) {
             slots: form.slots,
             frequency_per_week: form.frequency_per_week,
             content_formats: form.content_formats,
+            publishing_mode: form.publishing_mode || (form.require_approval ? 'review' : 'autopilot'),
             require_approval: form.require_approval,
             auto_generate: form.auto_generate,
           })}>

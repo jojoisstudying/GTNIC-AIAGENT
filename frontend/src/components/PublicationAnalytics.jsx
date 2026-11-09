@@ -36,7 +36,7 @@ function MetricTile({ label, icon: Icon, value, available }) {
   );
 }
 
-function PublicationDetail({ pubId, onClose }) {
+function PublicationDetail({ pubId, onClose, onIngestSuccess }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -62,6 +62,7 @@ function PublicationDetail({ pubId, onClose }) {
     try {
       await api.ingestMetrics(pubId);
       await load();
+      onIngestSuccess?.();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -185,7 +186,7 @@ function PublicationDetail({ pubId, onClose }) {
   );
 }
 
-export default function PublicationAnalytics() {
+export default function PublicationAnalytics({ onIngestSuccess }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -212,6 +213,7 @@ export default function PublicationAnalytics() {
     try {
       await api.ingestMetrics(null);
       await load();
+      onIngestSuccess?.();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -261,7 +263,7 @@ export default function PublicationAnalytics() {
         </div>
       )}
 
-      {selected && <PublicationDetail pubId={selected} onClose={() => setSelected(null)} />}
+      {selected && <PublicationDetail pubId={selected} onClose={() => setSelected(null)} onIngestSuccess={onIngestSuccess} />}
 
       <Card>
         <CardHeader

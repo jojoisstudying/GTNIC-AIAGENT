@@ -145,6 +145,10 @@ def prepare_publication(run_id: str, req: PreparePublicationRequest, request: Re
 
         require_approval = _require_approval(session)
         scheduled_for = _parse_dt(req.scheduled_for)
+        if not scheduled_for and not require_approval:
+            # Mode autopilot: bila tidak diberikan jadwal eksplisit, jadwalkan ke target slot kalender/otomatis
+            dummy_pub = Publication(strategy_item_id=item.id if item else None, run_id=run_id)
+            scheduled_for = _schedule_target(session, dummy_pub)
         plan = {"caption": req.caption, "hashtags": req.hashtags}
         if req.caption is None:
             plan = _plan_from_run(session, run)
@@ -264,13 +268,29 @@ def approve_publication(pub_id: int, request: Request, req: Optional[ApproveRequ
         if pub.status == ps.PUBLISHED:
             return {"ok": True, "already_published": True,
                     "publication": _publication_payload(session, pub)}
+        publish_now = bool(req.publish_now)
         if req.scheduled_for:
             try:
                 ps.update_draft(session, pub, scheduled_for=_parse_dt(req.scheduled_for))
+                # Bila scheduled_for ada dan di masa depan, jangan publish_now
+                due_at = ps._aware(pub.scheduled_for)
+                if due_at and due_at > ps.utc_now():
+                    publish_now = False
             except PublicationError as exc:
                 raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+        elif not publish_now and pub.scheduled_for is None:
+            # Sama seperti approve-all: tentukan target jadwal dari kalender / slot otomatis
+            target = _schedule_target(session, pub)
+            if target is not None:
+                pub.scheduled_for = target
+                session.commit()
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Jadwal publikasi tidak dapat ditentukan. Harap tentukan scheduled_for atau konfigurasi hari dan jam posting di Pengaturan Otomatisasi."
+                )
         try:
-            ps.approve(session, pub, actor=actor, publish_now=bool(req.publish_now))
+            ps.approve(session, pub, actor=actor, publish_now=publish_now)
         except PublicationError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
         session.refresh(pub)
@@ -433,6 +453,8 @@ def approve_all(request: Request, req: Optional[ApproveAllRequest] = None):
                         if target is not None:
                             pub.scheduled_for = target
                             session.commit()
+                        else:
+                            raise PublicationError("Jadwal publikasi tidak dapat ditentukan (jadwal kosong).", status_code=400)
                     ps.approve(session, pub, actor=actor, publish_now=False)
                     approved_pubs += 1
                 except PublicationError as exc:
@@ -707,6 +729,7 @@ class AutomationUpdateRequest(BaseModel):
     frequency_per_week: Optional[int] = None
     content_formats: Optional[list[str]] = None
     content_pillars: Optional[list[str]] = None
+    publishing_mode: Optional[str] = None
     require_approval: Optional[bool] = None
     auto_generate: Optional[bool] = None
     lead_hours: Optional[int] = None
@@ -911,8 +934,11 @@ def ingest_metrics(req: Optional[IngestRequest] = None):
     from src.core.analytics_ingest import fetch_instagram_metrics, ingest_all, ingest_publication
 
     req = req or IngestRequest()
-    if not config.opt("IG_USER_ID"):
-        raise HTTPException(status_code=409, detail="IG_USER_ID belum dikonfigurasi di backend/.env")
+    if not config.opt("IG_USER_ID") or not config.opt("IG_TOKEN"):
+        raise HTTPException(
+            status_code=409,
+            detail="Instagram belum terhubung: IG_USER_ID dan IG_TOKEN wajib dikonfigurasi di backend/.env."
+        )
     if req.publication_id:
         with SessionLocal() as session:
             pub = session.get(Publication, req.publication_id)

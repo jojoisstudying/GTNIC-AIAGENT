@@ -83,6 +83,51 @@ def _policy(session) -> dict:
     return autonomy.load_policy(prof.approval_workflow_json if prof else None)
 
 
+def _auto_prepare_and_schedule_run(s, run_row, strategy_item=None):
+    """Bila QC lulus di mode Autopilot, otomatis siapkan publikasi dan jadwalkan."""
+    from src.core import automation, publication_service as ps
+    from src.automation_api import _media_from_run, _plan_from_run, _schedule_target
+
+    if not run_row or run_row.status not in ("ok", "awaiting_approval"):
+        return
+    existing = ps.get_for_run(s, run_row.id)
+    if existing and existing.status in (ps.SCHEDULED, ps.PUBLISHED, ps.PUBLISHING, ps.INTENT):
+        return
+
+    # Periksa mode publikasi dari AutomationSettings
+    auto_set = automation.get_settings(s, create=False)
+    pub_mode = getattr(auto_set, "publishing_mode", "autopilot") if auto_set else "autopilot"
+    req_app = getattr(auto_set, "require_approval", False) if auto_set else False
+
+    if pub_mode == "autopilot" or not req_app:
+        media_urls, detected = _media_from_run(s, run_row)
+        if not media_urls:
+            return
+        plan = _plan_from_run(s, run_row)
+        item = strategy_item or s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_row.id)).first()
+        dummy_pub = Publication(strategy_item_id=item.id if item else None, run_id=run_row.id)
+        scheduled_for = _schedule_target(s, dummy_pub)
+        if scheduled_for:
+            if existing:
+                ps.update_draft(s, existing, caption=plan.get("caption"), hashtags=plan.get("hashtags"),
+                                image_urls=media_urls, scheduled_for=scheduled_for, media_type=detected)
+                pub = existing
+            else:
+                pub = ps.ensure_pending(s, run_id=run_row.id, plan=plan, media_type=detected or "carousel",
+                                        image_urls=media_urls, strategy_item_id=item.id if item else None,
+                                        scheduled_for=scheduled_for, require_approval=False, actor="autopilot")
+            if pub.status != ps.SCHEDULED:
+                pub.status = ps.SCHEDULED
+                pub.approved_at = pub.approved_at or datetime.now(timezone.utc)
+                pub.approved_by = pub.approved_by or "autopilot"
+                s.commit()
+            if item and item.status not in ("published", "publishing"):
+                item.status = "scheduled"
+                item.approved_by = item.approved_by or "autopilot"
+                s.commit()
+            log.info("Autopilot: Run %s otomatis dijadwalkan untuk %s", run_row.id, scheduled_for)
+
+
 def sync_and_automate(session_factory) -> dict:
     """Sinkron status hasil produksi, lalu terapkan kebijakan autonomi (auto-approve / auto-schedule)."""
     stats = {"synced": 0, "auto_approved": 0, "auto_scheduled": 0}
@@ -104,6 +149,11 @@ def sync_and_automate(session_factory) -> dict:
             if it.status == "approved" and it.approved_by and autonomy.may_auto_schedule(policy, it) \
                     and run_status in {"awaiting_approval", "ok"}:
                 it.status = "scheduled"; stats["auto_scheduled"] += 1
+
+            # Autopilot mode: otomatis buat baris publikasi dan jadwalkan bila QC lolos
+            if run and run_status in ("awaiting_approval", "ok"):
+                _auto_prepare_and_schedule_run(s, run, it)
+
             it.updated_at = datetime.now(timezone.utc)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for c in s.scalars(select(Campaign).where(Campaign.status == "active", Campaign.end_date < today)).all():
@@ -131,7 +181,8 @@ def run_once(session_factory, publish_fn: Callable[[str], object], now: Optional
         for pub in s.scalars(select(Publication).where(
                 Publication.status == ps.SCHEDULED, Publication.approved_at.is_not(None))).all():
             when = _aware(pub.scheduled_for)
-            if when is not None and when > now:
+            if when is None or when > now:
+                # Jangan pernah mempublikasikan publikasi yang scheduled_for-nya null atau belum jatuh tempo
                 continue
             due.append((pub.id, pub.run_id or "", "publication"))
         for it in s.scalars(select(ContentStrategyItem).where(

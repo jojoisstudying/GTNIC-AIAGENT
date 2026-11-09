@@ -278,8 +278,15 @@ def approve(session: Session, pub: Publication, *, actor: str = "api_user",
     if pub.error:
         pub.error = None
     due_at = _aware(pub.scheduled_for)
-    future = due_at is not None and due_at > now
-    pub.status = SCHEDULED if (future or not publish_now) else PENDING_APPROVAL
+    if publish_now:
+        pub.status = PENDING_APPROVAL
+    else:
+        # Non-immediate approval must be scheduled for a valid future timestamp
+        if due_at is None:
+            raise PublicationError("Publikasi terjadwal harus memiliki waktu tayang (scheduled_for) yang valid.", status_code=400)
+        if due_at <= now:
+            raise PublicationError("Waktu tayang terjadwal harus di masa depan.", status_code=400)
+        pub.status = SCHEDULED
     pub.updated_at = now
     session.add(Approval(
         entity_type="publication",
