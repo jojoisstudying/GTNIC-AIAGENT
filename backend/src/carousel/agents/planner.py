@@ -24,7 +24,7 @@ from src.carousel.layouts import registry as layout_registry
 from src.carousel.layouts.models import ROLES, validate_content
 from src.carousel.layouts.primitives.icons import ICON_NAMES
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 2  # percobaan ulang hanya untuk JSON rusak; validasi bersifat lunak
 ALLOWED_FORMATS = {"single_image", "carousel"}
 MIN_CAROUSEL_SLIDES = 5
 MAX_CAROUSEL_SLIDES = 6
@@ -59,50 +59,29 @@ CLAIM_PATTERNS = [
 
 SYSTEM = "Kamu Creative Director social media untuk sebuah perusahaan. Output HANYA JSON valid, tanpa teks lain."
 
-PROMPT = """BRAND KIT:
-{brand}
-
-TOPIK POSTING: {topic}
-
-HASIL RISET (dari Agent 1):
-{research}
-
-SUMBER RISET YANG BOLEH DIRUJUK (id + URL persis):
+PROMPT = """BRAND:{brand}
+TOPIK: {topic}
+RISET:{research}
+SUMBER (id + URL persis):
 {source_catalog}
 
-Buat rencana SATU post Instagram dengan aturan berikut:
-- Pipeline hanya menghasilkan GAMBAR statis: format "single_image" (1 slide, role "single") atau "carousel" (5-6 slide). Abaikan tren yang hanya berlaku untuk video kecuali bisa diterjemahkan jadi gambar.
-- STRUKTUR CAROUSEL: slide pertama role "cover" (hook visual), 3-4 slide role "content" (substansi), slide terakhir role "cta".
-- LAYOUT: setiap slide HARUS memakai id dari katalog di bawah (persis). Pilih berdasarkan FUNGSI isi slide (role, density, needs_photo, tags), bukan kebiasaan. Variasikan: jangan pakai layout yang sama berdekatan, dan jangan memaksakan pola yang sama dengan post sebelumnya. Role layout "cover" hanya untuk slide cover/single, role "cta" hanya untuk penutup, role lain untuk slide content.
-- FOTO OPERATOR: brand punya figur operator. Buat carousel terasa personal dengan 1-2 slide berfoto (layout needs_photo "required"/"optional", isi pose_tags dari pose yang tercantum di layout itu dan ada di available_poses). Slide lain tanpa pose_tags. Jangan memakai foto lebih dari 2 slide.
-- Setiap slide: headline maks 8 kata, subtext maks 22 kata. Untuk slide content, subtext berisi penjelasan substantif (idealnya 8-22 kata).
-- pose_tags hanya dari available_poses. Jika butuh pose lain, isi new_pose_request dan pakai pose terdekat.
-- KEJUJURAN: dilarang membuat angka/statistik yang tidak ada di riset/brand/topik. DILARANG janji hasil atau klaim kesehatan (mis. "mengurangi kelelahan", "meningkatkan produktivitas", "terbukti"). Tulis sebagai SARAN PRAKTIS ("Coba...", "Biasakan...", "Bisa dimulai dengan..."), bukan janji hasil.
-- research_used: daftar sumber yang benar-benar kamu pakai. WAJIB memakai id dari blok SUMBER RISET YANG BOLEH DIRUJUK (S1, S2, ...) atau menyalin URL PERSIS dari blok itu. Jangan menulis URL lain, jangan mengarang, jangan memotong URL.
-- caption: kalimat pertama hook, isi singkat, lalu ajakan bertindak. Sesuai tone brand, tanpa janji hasil.
-- hashtags: 3-8 buah, diawali #.
-- schedule.slots: ambil waktu HANYA dari posting_time riset (tulis persis sebagaimana di riset). Waktu lain yang kamu usulkan sendiri boleh untuk A/B test, tapi akan diberi label "asumsi". ab_test: jelaskan perbandingan antar slot.
-- "slots": isi semua field required layout terpilih (patuhi min/max karakter dan jumlah item). "params": hanya nilai enum yang valid. "emphasis": 1-2 frasa pendek yang benar-benar ada di slots (atau []).
-- Layout ber-slot angka (value / value_1..3 + source) hanya boleh dipakai bila riset memberi angka bersumber (research.facts.stats); setiap value harus sama persis dengan salah satu stats. Layout ber-slot "quote" hanya bila riset memberi kutipan bersumber (research.facts.quotes), isi persis sama; jangan pernah mengarang angka, kutipan, atau testimoni. Jika datanya tidak ada, pilih layout lain.
-- Layout ber-slot list: isi item yang benar-benar berbeda dan substantif; layout dua sisi: tiap sisi minimal 2 item. Jangan mengarang fakta demi mengisi slot.
-- Layout CTA berbasis kata kunci komentar: "keyword" = SATU kata topik (bukan kata kerja seperti simpan/bagikan), ajakannya konsisten dengan komentar.
-- Konten slots harus selaras dengan headline/subtext, bukan sekadar mengulang.
+Buat rencana 1 post Instagram (gambar statis). Aturan:
+- format "single_image" (1 slide, role single) atau "carousel" (5-6 slide: cover, 3-4 content, cta terakhir). Ikuti "Format wajib" pada topik bila ada.
+- layout_id HARUS persis dari KATALOG; pilih menurut fungsi slide (r, d, p, tg) dan variasikan.
+- Bila brand punya available_poses, beri 1-2 slide berfoto (layout p=required/optional); pose_tags dari pose layout itu yang ada di available_poses; pose lain -> new_pose_request.
+- headline maks 8 kata; subtext maks 22 kata (slide content: penjelasan substantif 8-22 kata).
+- JUJUR: dilarang angka/statistik di luar riset/brand/topik; dilarang janji hasil, klaim kesehatan, atau "terbukti". Layout slot angka (value/source) hanya bila research.facts.stats ada; value harus persis salah satu stats.
+- research_used: id sumber (S1, S2, ...) atau URL persis dari blok SUMBER; jangan mengarang.
+- caption: hook, isi singkat, ajakan; sesuai tone brand. hashtags 3-8, diawali #.
+- schedule.slots: waktu hanya dari posting_time riset (persis); waktu lain hanya untuk A/B dan diberi label asumsi.
+- slots: isi semua field wajib sesuai min/max karakter dan jumlah item; params hanya enum valid; emphasis 1-2 frasa yang ada di slots.
+- list: item berbeda dan substantif (layout dua sisi: min 2 item per sisi). CTA keyword = SATU kata topik, konsisten dengan ajakan.
 {variety}
-KATALOG LAYOUT APPROVED (schema slots dan params):
+KATALOG:
 {layout_catalog}
 {issues}
-Format JSON:
-{{
- "concept": "1-2 kalimat",
- "content_pillar": "salah satu dari content_pillars",
- "format": "single_image | carousel",
- "slides": [{{"role": "cover|content|cta|single", "layout_id": "<id dari katalog>", "slots": {{}}, "params": {{}}, "emphasis": [], "headline": "", "subtext": "", "pose_tags": []}}],
- "caption": "",
- "hashtags": [],
- "schedule": {{"slots": [{{"time": ""}}], "rationale": "", "ab_test": ""}},
- "research_used": [],
- "new_pose_request": null
-}}"""
+JSON:
+{{"concept":"","content_pillar":"","format":"single_image|carousel","slides":[{{"role":"cover|content|cta|single","layout_id":"","slots":{{}},"params":{{}},"emphasis":[],"headline":"","subtext":"","pose_tags":[]}}],"caption":"","hashtags":[],"schedule":{{"slots":[{{"time":""}}],"rationale":"","ab_test":""}},"research_used":[],"new_pose_request":null}}"""
 
 
 # ---------------------------------------------------------------- util umum
@@ -246,7 +225,7 @@ def _variety_note(history: list[dict], approved: dict) -> str:
 
 # ---------------------------------------------------------------- katalog untuk prompt
 
-def _layout_catalog_prompt(approved: dict | None = None) -> str:
+def _layout_catalog_prompt(approved: dict | None = None, topic: str = "", blocked: set | None = None) -> str:
     """Katalog ringkas untuk prompt: teks padat, bukan JSON penuh (hemat ±60% token).
 
     Notasi tiap baris:
@@ -259,12 +238,15 @@ def _layout_catalog_prompt(approved: dict | None = None) -> str:
     """
     approved = approved if approved is not None else _approved()
     lines = [
-        "KATALOG (1 baris=1 layout). * = slot wajib. (a-b)=min-max karakter; "
-        "{list a-b×c}=tipe list, a-b item, maks c karakter/item; "
-        "{num}/{text}/{icon}/{image}=tipe non-teks. r=role d=density p=needs_photo. "
-        "s=slots pr=params ps=pose_tags tg=tags.",
+        "1 baris=1 layout. *=wajib. (a-b)=min-max karakter; {list a-b×c}=a-b item maks c karakter; "
+        "r=role d=density p=needs_photo s=slots pr=params ps=pose_tags tg=tags.",
     ]
-    for spec in approved.values():
+    # Hemat token: hanya layout yang relevan dengan format & bukan cover yang sedang cooldown.
+    want = {"cover", "cta"} if "single_image" in topic else None   # 1 slide: cukup layout cover/cta
+    chosen = [sp for sp in approved.values()
+              if (want is None or sp.meta.role in want)
+              and not (blocked and sp.id in blocked and sp.meta.role == "cover")]
+    for spec in (chosen or list(approved.values())):
         slots = []
         for name, s in sorted(spec.slots.items()):
             part = f"{name}*" if s.required else name
@@ -984,8 +966,8 @@ def _prompt_budget_cfg(catalog_text: str | None = None, source_block: str | None
         "max_completion_tokens": max_out,
         # Batas estimasi token untuk seluruh prompt planner (instruksi + katalog + konteks).
         "max_prompt_tokens": token_budget_tokens,
-        "research_value_chars": _int("LLM_RESEARCH_VALUE_CHARS", 400),
-        "brand_value_chars": _int("LLM_BRAND_VALUE_CHARS", 300),
+        "research_value_chars": _int("LLM_RESEARCH_VALUE_CHARS", 250),
+        "brand_value_chars": _int("LLM_BRAND_VALUE_CHARS", 200),
     }
 
 
@@ -1157,7 +1139,7 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
     # Konteks masuk prompt dalam bentuk ringkas: riset dipangkas per nilai agar tidak
     # menghabiskan kuota TPM, tetapi seluruh kunci (sumber, stats, quotes, posting_time)
     # tetap ada supaya aturan kejujuran di prompt masih bisa dipatuhi model.
-    catalog_text = _layout_catalog_prompt(approved)
+    catalog_text = _layout_catalog_prompt(approved, topic, _recent_covers(history, approved))
     # Daftar URL yang boleh dirujuk dibangun dari riset ASLI dan dikirim utuh: model
     # disuruh menyalin dari blok ini, jadi tidak ada alasan ia mengarang atau memotong URL.
     sources = SourceCatalog.from_research(research)
@@ -1190,8 +1172,7 @@ def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, 
         issues = validate(plan, blob, research, topic, history=history, approved=approved)
         if best is None or len(issues) <= len(best[1]):
             best = (plan, issues)       # simpan percobaan terbaik, bukan sekadar yang terakhir
-        if not issues:
-            break
+        break  # JSON valid -> cukup; hemat token (issues ditangani kode, bukan percobaan ulang)
     plan, issues = best if best else (None, issues)
     if plan is not None and issues and all("masih cooldown" in m for m in issues):
         # Cooldown cuma soal variasi: ganti otomatis ke layout lain yang se-role, jangan gagalkan run.

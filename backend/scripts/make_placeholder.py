@@ -5,7 +5,9 @@ from PIL import Image, ImageDraw
 from src import config
 from src.carousel.tools import asset_library
 
-BODY, SKIN, DARK = (74, 132, 205, 255), (240, 200, 170, 255), (60, 70, 90, 255)
+# Warna siluet placeholder bertema coklat tua (Kopi):
+# BODY: Coklat tua espresso (#3E2723), SKIN: Krem hangat latte (#E0C9A6), DARK: Coklat pekat biji kopi (#271915)
+BODY, SKIN, DARK = (62, 39, 35, 255), (224, 201, 166, 255), (39, 25, 21, 255)
 
 
 def figure(pose: str) -> Image.Image:

@@ -244,7 +244,7 @@ def run(topic: str, industry: str, client=None, max_steps: int = 8, on_step=prin
         brand_facts: dict | None = None) -> dict:
     client = ctx.llm if ctx else client
     client = client or _get_client()
-    model = config.opt("GROQ_MODEL", "openai/gpt-oss-120b")
+    model = config.opt("RESEARCH_MODEL", "") or config.opt("GROQ_MODEL", "openai/gpt-oss-120b")
     user_msg = f"Industri: {industry}\nTopik/tujuan posting: {topic}"
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
     gathered = []

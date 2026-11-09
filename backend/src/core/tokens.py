@@ -26,7 +26,7 @@ from src.carousel.sources import URL_RE
 DEFAULT_CHARS_PER_TOKEN = 2.8     # diukur dari error nyata Groq: ~19.1k karakter -> ~6.5k token
 DEFAULT_MAX_COMPLETION_TOKENS = 2560
 DEFAULT_SAFETY_RATIO = 0.92
-DEFAULT_MAX_WAIT_SECONDS = 20.0
+DEFAULT_MAX_WAIT_SECONDS = 60.0
 COMPACT_MARK = "\n…[dipotong otomatis agar hemat token]…\n"
 
 # Prioritas pemangkasan: konteks yang paling boleh dikorbankan lebih dulu.

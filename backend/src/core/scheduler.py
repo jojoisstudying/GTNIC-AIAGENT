@@ -155,7 +155,12 @@ def sync_and_automate(session_factory) -> dict:
             if run_status in {"failed", "qc_failed", "generation_failed"}:
                 # QC gagal -> produksi ulang otomatis (maks MAX_AUTO_RETRY kali), tanpa campur tangan user.
                 tries = _retry_count(it)
-                if active and tries < MAX_AUTO_RETRY:
+                _err = (run.error or "").lower()
+                if active and any(k in _err for k in ("cooling down", "429", "rate limit", "providerexhausted", "tpm")):
+                    # Kuota LLM habis: tunggu beberapa menit, jangan habiskan jatah retry.
+                    it.approval_notes = "[rate-wait] kuota LLM habis, diulang otomatis"
+                    it.run_id, it.status = None, "generation_failed"
+                elif active and tries < MAX_AUTO_RETRY:
                     it.approval_notes = f"[auto-retry {tries + 1}/{MAX_AUTO_RETRY}] {(run.error or run_status)[:200]}"
                     it.run_id, it.status = None, "approved"
                 else:
@@ -178,7 +183,7 @@ def sync_and_automate(session_factory) -> dict:
             for it in s.scalars(select(ContentStrategyItem).where(
                     ContentStrategyItem.status == "generation_failed")).all():
                 upd = it.updated_at if it.updated_at.tzinfo else it.updated_at.replace(tzinfo=timezone.utc)
-                if datetime.now(timezone.utc) - upd > timedelta(minutes=30):
+                if datetime.now(timezone.utc) - upd > timedelta(minutes=3 if (it.approval_notes or "").startswith("[rate-wait]") else 30):
                     it.approval_notes, it.run_id, it.status = None, None, "approved"
                     it.updated_at = datetime.now(timezone.utc)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
