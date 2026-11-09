@@ -1121,8 +1121,10 @@ def _fit_planner_static(static: dict, max_tokens: int) -> dict:
 # ---------------------------------------------------------------- orkestrasi
 
 def summarize_issues(issues: list[str]) -> str:
-    """Pesan aman untuk UI; detail validator disimpan untuk debugging internal."""
+    """Pesan informatif untuk UI yang menjelaskan validator/masalah spesifik yang terjadi."""
     items = [str(i) for i in (issues or [])]
+    if not items:
+        return "Perencanaan konten gagal tanpa rincian masalah."
 
     if any("research_used" in item for item in items):
         return (
@@ -1131,11 +1133,9 @@ def summarize_issues(issues: list[str]) -> str:
             "lalu buat konten kembali."
         )
 
-    return (
-        "Konten belum berhasil disusun setelah beberapa percobaan otomatis. "
-        "Coba lagi beberapa saat. Jika masalah berulang, jalankan riset ulang "
-        "atau gunakan topik lain."
-    )
+    # Cantumkan detail ringkas dari validasi yang gagal
+    detail = "; ".join(items[:2])
+    return f"Konten belum berhasil disusun setelah beberapa percobaan otomatis: {detail}."
 
 
 def run(topic: str, research: dict, brand: dict, client=None, on_step=print, *, ctx=None,

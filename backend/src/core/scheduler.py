@@ -138,11 +138,12 @@ def sync_and_automate(session_factory) -> dict:
                 ContentStrategyItem.run_id.is_not(None))).all():
             run = s.get(Run, it.run_id)
             run_status = run.status if run else None
-            if it.status in {"producing", "running"}:
+            if run_status in {"failed", "qc_failed", "generation_failed"}:
+                it.status = "generation_failed"
+                stats["synced"] += 1
+            elif it.status in {"producing", "running"}:
                 if run_status in {"awaiting_approval", "ok"}:
                     it.status = "awaiting_approval"; stats["synced"] += 1
-                elif run_status in {"failed", "qc_failed", "generation_failed"}:
-                    it.status = "generation_failed"; stats["synced"] += 1
             if it.status == "awaiting_approval" and run_status in {"awaiting_approval", "ok"} \
                     and autonomy.may_auto_approve(policy, it):
                 it.status, it.approved_by = "approved", "autonomy_policy"; stats["auto_approved"] += 1

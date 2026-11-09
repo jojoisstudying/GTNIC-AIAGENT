@@ -101,7 +101,7 @@ const stageIndex = (step) => {
 /* ------------------------------------------------------------------ */
 /* Baris jadwal minggu                                                 */
 /* ------------------------------------------------------------------ */
-function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic, onReschedule, onPreview }) {
+function WeekRow({ row, busy, onApprove, onRetry, onCancel, onPublish, onEditTopic, onReschedule, onPreview }) {
   const Icon = STATUS_ICON[row.status] || Clock;
   const tone = STATUS_TONE[row.status_tone] || STATUS_TONE.neutral;
   const day = dayNameOf(row.date);
@@ -180,10 +180,16 @@ function WeekRow({ row, busy, onApprove, onCancel, onPublish, onEditTopic, onRes
             Lihat hasil
           </Button>
         )}
+        {row.can_retry && (
+          <Button size="xs" variant="secondary" icon={RefreshCw} loading={busy === `retry-${row.kind}-${row.ref_id}`}
+            onClick={() => onRetry(row)}>
+            Coba produksi ulang
+          </Button>
+        )}
         {row.can_approve && row.kind === 'calendar' && (
           <Button size="xs" icon={CheckCircle2} loading={busy === `approve-item-${row.ref_id}`}
             onClick={() => onApprove(row, 'item')}>
-            Setujui
+            Setujui ide
           </Button>
         )}
         {canEditTopic && !editing && (
@@ -439,6 +445,7 @@ export default function Automation({ onNotify, onOpenRun }) {
     if (filter === 'needs_approval') return week.filter((r) => r.status === 'needs_approval');
     if (filter === 'scheduled') return week.filter((r) => ['scheduled', 'publishing'].includes(r.status));
     if (filter === 'published') return week.filter((r) => r.status === 'published');
+    if (filter === 'failed') return week.filter((r) => r.status === 'failed');
     return week.filter((r) => r.status !== 'published');
   }, [week, filter]);
 
@@ -456,6 +463,26 @@ export default function Automation({ onNotify, onOpenRun }) {
       await load({ silent: true });
     } catch (err) {
       onNotify?.('error', err.message, 'Gagal menyetujui');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const retryRow = async (row) => {
+    setBusy(`retry-${row.kind}-${row.ref_id}`);
+    try {
+      if (row.kind === 'calendar') {
+        // Reset status ke approved dan lepaskan run_id agar diproduksi ulang
+        await api.updateStrategyItem(row.ref_id, { status: 'approved' });
+        onNotify?.('success', 'Mempersiapkan produksi ulang konten...', 'Coba Ulang');
+      } else if (row.publication_id) {
+        // Publikasi gagal: coba setujui & jadwalkan kembali
+        await api.approvePublication(row.publication_id, { publish_now: false });
+        onNotify?.('success', 'Publikasi dijadwalkan ulang.', 'Coba Ulang');
+      }
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal mengulang produksi');
     } finally {
       setBusy(null);
     }
@@ -782,6 +809,7 @@ export default function Automation({ onNotify, onOpenRun }) {
                   { key: 'needs_approval', label: 'Perlu disetujui' },
                   { key: 'scheduled', label: 'Terjadwal' },
                   { key: 'published', label: 'Tayang' },
+                  { key: 'failed', label: 'Gagal' },
                 ].map((opt) => (
                   <button
                     key={opt.key}
@@ -815,6 +843,7 @@ export default function Automation({ onNotify, onOpenRun }) {
                   row={row}
                   busy={busy}
                   onApprove={approveRow}
+                  onRetry={retryRow}
                   onCancel={cancelRow}
                   onPublish={publishRow}
                   onEditTopic={editTopic}

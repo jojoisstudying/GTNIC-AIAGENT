@@ -813,3 +813,73 @@ def test_analytics_ingestion_handles_missing_credentials_and_errors(env, monkeyp
     assert exc.value.status_code == 409
     assert "Instagram belum terhubung" in exc.value.detail
 
+
+def test_sync_and_automate_synchronizes_failed_even_if_already_awaiting_approval(env):
+    from src.core import scheduler
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        item = ContentStrategyItem(plan_date="2026-11-10", topic="Test Failed Sync", format="carousel",
+                                   content_pillar="Tips", objective="Edukasi", target_segment="Umum",
+                                   scheduled_slot="09:00 WIB", status="awaiting_approval", run_id=run_id)
+        s.add(item)
+        run = s.get(Run, run_id)
+        run.status = "qc_failed"
+        run.error = "QC failed on slide 2"
+        s.commit()
+
+    scheduler.sync_and_automate(factory)
+
+    with factory() as s:
+        loaded = s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.run_id == run_id)).first()
+        assert loaded.status == "generation_failed"
+
+
+def test_qc_failed_run_blocks_publication_preparation_and_approval(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        run = s.get(Run, run_id)
+        run.status = "failed"
+        run.error = "Planner failed after 3 attempts"
+        s.commit()
+
+    with pytest.raises(HTTPException) as exc1:
+        automation_api.prepare_publication(run_id, automation_api.PreparePublicationRequest(image_urls=["https://cdn.test/1.jpg"]), request=_req())
+    assert exc1.value.status_code == 400
+    assert "gagal QC" in exc1.value.detail
+
+    with factory() as s:
+        # Create a raw publication row pointing to failed run
+        pub = ps.ensure_pending(s, run_id=run_id, plan={"caption": "test"}, media_type="carousel",
+                                image_urls=["https://cdn.test/1.jpg"])
+        pub_id = pub.id
+
+    with pytest.raises(HTTPException) as exc2:
+        automation_api.approve_publication(pub_id, request=_req(), req=automation_api.ApproveRequest())
+    assert exc2.value.status_code == 400
+    assert "gagal QC" in exc2.value.detail
+
+
+def test_approve_all_does_not_include_failed_items(env):
+    factory, run_id, out_dir = env
+    _carousel_run(factory, run_id, out_dir)
+    with factory() as s:
+        item_draft = ContentStrategyItem(plan_date="2026-11-12", topic="Item Draft", format="carousel",
+                                         content_pillar="Tips", objective="Edukasi", target_segment="Umum",
+                                         scheduled_slot="09:00 WIB", status="draft")
+        item_failed = ContentStrategyItem(plan_date="2026-11-13", topic="Item Failed", format="carousel",
+                                          content_pillar="Tips", objective="Edukasi", target_segment="Umum",
+                                          scheduled_slot="09:00 WIB", status="generation_failed")
+        s.add_all([item_draft, item_failed])
+        s.commit()
+
+    res = automation_api.approve_all(request=_req())
+    assert res["ok"] is True
+    assert res["approved_calendar_items"] == 1  # Only item_draft, not item_failed!
+
+    with factory() as s:
+        assert s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.topic == "Item Draft")).first().status == "approved"
+        assert s.scalars(select(ContentStrategyItem).where(ContentStrategyItem.topic == "Item Failed")).first().status == "generation_failed"
+
+

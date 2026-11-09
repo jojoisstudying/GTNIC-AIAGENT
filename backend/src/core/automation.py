@@ -268,16 +268,29 @@ def automation_active(session: Session) -> bool:
     return bool(row.enabled) and row.state == STATE_RUNNING
 
 
-def next_slot_after(session: Session, now: datetime | None = None) -> datetime | None:
-    """Waktu UTC berikutnya yang cocok dengan jadwal (hari + jam) yang dikonfigurasi."""
+def next_slot_after(session: Session, now: datetime | None = None, *, exclude_occupied: bool = True) -> datetime | None:
+    """Waktu UTC berikutnya yang cocok dengan jadwal (hari + jam) yang dikonfigurasi.
+    Jika exclude_occupied=True, lewati slot yang sudah memiliki publikasi terjadwal/publishing.
+    """
     row = _ensure(session)
     days = set(_loads(row.posting_days_json, DEFAULT_DAYS))
     slots = _loads(row.slots_json, DEFAULT_SLOTS)
     tz_offset = _tz_offset_hours(row.timezone)
     now = now or datetime.now(timezone.utc)
     local_now = now + timedelta(hours=tz_offset)
+
+    occupied_times: set[datetime] = set()
+    if exclude_occupied:
+        # Kumpulkan semua scheduled_for dari publikasi aktif (scheduled, publishing, intent)
+        for pub in session.scalars(select(Publication).where(
+                Publication.status.in_(("scheduled", "publishing", "intent")),
+                Publication.scheduled_for.is_not(None))).all():
+            if pub.scheduled_for:
+                aware = pub.scheduled_for if pub.scheduled_for.tzinfo else pub.scheduled_for.replace(tzinfo=timezone.utc)
+                occupied_times.add(aware)
+
     best: datetime | None = None
-    for day_offset in range(0, 8):
+    for day_offset in range(0, 15):  # Periksa hingga 2 minggu ke depan
         day = (local_now + timedelta(days=day_offset)).date()
         if day.isoweekday() not in days:
             continue
@@ -286,9 +299,12 @@ def next_slot_after(session: Session, now: datetime | None = None) -> datetime |
             candidate_local = datetime(day.year, day.month, day.day, hour, minute)
             candidate = candidate_local - timedelta(hours=tz_offset)
             candidate = candidate.replace(tzinfo=timezone.utc)
-            if candidate > now and (best is None or candidate < best):
-                best = candidate
-                break
+            if candidate > now:
+                if exclude_occupied and candidate in occupied_times:
+                    continue
+                if best is None or candidate < best:
+                    best = candidate
+                    break
         if best:
             break
     return best
@@ -308,13 +324,24 @@ def summary(session: Session) -> dict:
         counts[str(status)] = int(count)
     generated = session.scalar(select(func.count(ContentStrategyItem.id))) or 0
     published = counts.get("published", 0)
+
+    # Hitung kegagalan produksi dari item kalender yang belum/tidak punya publikasi failed
+    calendar_failed = session.scalar(select(func.count(ContentStrategyItem.id)).where(
+        ContentStrategyItem.status.in_(("generation_failed", "publication_failed")))) or 0
+    # Publikasi gagal
+    pub_failed = counts.get("failed", 0)
+    total_failed = max(pub_failed, calendar_failed, pub_failed + calendar_failed - (
+        session.scalar(select(func.count(Publication.id)).where(
+            Publication.status == "failed", Publication.strategy_item_id.is_not(None))) or 0
+    ))
+
     return {
         "total_processed": generated,
         "awaiting_approval": counts.get("pending_approval", 0),
         "scheduled": counts.get("scheduled", 0),
         "publishing": counts.get("publishing", 0) + counts.get("intent", 0),
         "published": published,
-        "failed": counts.get("failed", 0),
+        "failed": total_failed,
         "cancelled": counts.get("cancelled", 0),
         "calendar_items": generated,
         "queued_generation": session.scalar(select(func.count(ContentStrategyItem.id)).where(

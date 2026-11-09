@@ -88,6 +88,19 @@ def _strategy_item_for_run(session, run_id: str | None) -> ContentStrategyItem |
         ContentStrategyItem.run_id == run_id)).first()
 
 
+def _assert_run_qc_passed(session, run_id: str | None) -> None:
+    """Pastikan run terkait benar-benar valid dan lulus QC sebelum disiapkan / disetujui / dipublikasikan."""
+    if not run_id:
+        return
+    run = session.get(Run, run_id)
+    if not run:
+        return
+    if run.status in ("failed", "qc_failed", "generation_failed"):
+        raise HTTPException(status_code=400, detail=f"Konten dari run '{run_id}' gagal QC ({run.status}: {run.error or 'tidak lulus QC'}). Tidak dapat dipersiapkan atau disetujui.")
+    if run.status == "cancelled":
+        raise HTTPException(status_code=409, detail=f"Run '{run_id}' telah dibatalkan.")
+
+
 def _publication_payload(session, pub: Publication) -> dict:
     data = ps.serialize(pub)
     item = session.get(ContentStrategyItem, pub.strategy_item_id) if pub.strategy_item_id else None
@@ -126,6 +139,7 @@ def prepare_publication(run_id: str, req: PreparePublicationRequest, request: Re
         run = session.get(Run, run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run tidak ditemukan")
+        _assert_run_qc_passed(session, run_id)
         if run.status == "cancelled":
             raise HTTPException(status_code=409, detail="Run ini dibatalkan; buat konten baru.")
         item = _strategy_item_for_run(session, run_id)
@@ -265,6 +279,7 @@ def approve_publication(pub_id: int, request: Request, req: Optional[ApproveRequ
         pub = session.get(Publication, pub_id)
         if not pub:
             raise HTTPException(status_code=404, detail="Publikasi tidak ditemukan")
+        _assert_run_qc_passed(session, pub.run_id)
         if pub.status == ps.PUBLISHED:
             return {"ok": True, "already_published": True,
                     "publication": _publication_payload(session, pub)}
@@ -336,6 +351,7 @@ def publish_now(pub_id: int):
         pub = session.get(Publication, pub_id)
         if not pub:
             raise HTTPException(status_code=404, detail="Publikasi tidak ditemukan")
+        _assert_run_qc_passed(session, pub.run_id)
         if pub.status == ps.PUBLISHED:
             return {"ok": True, "already_published": True, "media_id": pub.media_id,
                     "permalink": pub.permalink, "status": ps.PUBLISHED,
@@ -412,16 +428,24 @@ class ApproveAllRequest(BaseModel):
 
 
 def _schedule_target(session, pub: Publication) -> datetime | None:
-    """Waktu tayang untuk publikasi tanpa jadwal: slot item kalender, lalu slot berikutnya."""
+    """Waktu tayang untuk publikasi tanpa jadwal: slot item kalender (bila masih di masa depan), lalu slot berikutnya yang kosong."""
     item = session.get(ContentStrategyItem, pub.strategy_item_id) if pub.strategy_item_id else None
     if item is None and pub.run_id:
         item = _strategy_item_for_run(session, pub.run_id)
+    now = datetime.now(timezone.utc)
     if item is not None and item.plan_date and item.scheduled_slot:
         from src.core.scheduler import parse_due
         due = parse_due(item.plan_date, item.scheduled_slot)
-        if due is not None:
-            return due
-    return automation.next_slot_after(session)
+        # Jangan gunakan slot kalender yang sudah lampau (lewat waktu)!
+        if due is not None and due > now:
+            # Periksa apakah slot ini sudah ditempati publikasi lain
+            occupied = session.scalar(select(Publication).where(
+                Publication.id != pub.id,
+                Publication.status.in_((ps.SCHEDULED, ps.PUBLISHING, ps.INTENT)),
+                Publication.scheduled_for == due))
+            if not occupied:
+                return due
+    return automation.next_slot_after(session, now=now, exclude_occupied=True)
 
 
 @router.post("/publications/approve-all", dependencies=[Depends(auth.verify_api_key)])
@@ -547,10 +571,10 @@ _ITEM_STATUS_MAP = {
     "rejected": "rejected",
 }
 
-# Item kalender yang masih boleh disetujui lewat "Setujui Semua".
-_BATCH_ITEM_STATUSES = {"draft", "awaiting_approval", "generation_failed"}
-# Publikasi yang masih boleh disetujui (belum pernah memanggil API Meta dengan sukses).
-_BATCH_PUB_STATUSES = {ps.PENDING_APPROVAL, ps.FAILED}
+# Item kalender yang boleh disetujui lewat "Setujui Semua" (hanya yang draf / menunggu persetujuan ide).
+_BATCH_ITEM_STATUSES = {"draft", "awaiting_approval"}
+# Publikasi yang masih boleh disetujui (hanya yang menunggu persetujuan).
+_BATCH_PUB_STATUSES = {ps.PENDING_APPROVAL}
 
 
 def _iso(value) -> str | None:
@@ -635,6 +659,7 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
             slot=when_dt.strftime("%H:%M") if when_dt else _slot_hm(item.scheduled_slot if item else None),
             when=_iso(pub.scheduled_for) or _iso(pub.published_at),
             can_approve=pub.status in _BATCH_PUB_STATUSES and not pub.media_id,
+            can_retry=pub.status == ps.FAILED and not pub.media_id,
             can_cancel=pub.status in ps.CANCELLABLE,
             can_publish=pub.status in (ps.PENDING_APPROVAL, ps.SCHEDULED, ps.FAILED) and not pub.media_id,
             permalink=pub.permalink,
@@ -659,6 +684,7 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
             slot=_slot_hm(item.scheduled_slot),
             when=None,
             can_approve=item.status in _BATCH_ITEM_STATUSES,
+            can_retry=item.status == "generation_failed",
             can_cancel=False,
             can_publish=False,
             error=item.last_error,
@@ -667,9 +693,15 @@ def week_overview(session, *, days: int = 7) -> list[dict]:
             approved_by=item.approved_by,
         ))
 
-    rows.sort(key=lambda r: ((r.get("date") or "9999-12-31"), (r.get("slot") or "99:99"),
-                             r.get("kind") != "publication", r.get("ref_id") or 0))
-    return rows[: max(1, min(days * 20, 200))]
+    now = datetime.now(timezone.utc)
+    # Batasi kalender: mulai dari awal minggu (atau hari ini - 1 hari) hingga 7 hari ke depan
+    min_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    max_date = (now + timedelta(days=days)).strftime("%Y-%m-%d")
+    filtered_rows = [r for r in rows if not r.get("date") or (min_date <= r.get("date") <= max_date)]
+
+    filtered_rows.sort(key=lambda r: ((r.get("date") or "9999-12-31"), (r.get("slot") or "99:99"),
+                                     r.get("kind") != "publication", r.get("ref_id") or 0))
+    return filtered_rows[: max(1, min(days * 20, 200))]
 
 
 def live_status(session, *, limit: int = 5, stale_minutes: int = 45) -> dict:

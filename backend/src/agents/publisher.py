@@ -164,6 +164,11 @@ def execute_publication(pub_id: int, *, on_step=print, ctx=None, share_to_feed: 
                 status_code=409)
         if pub.approved_at is None:
             raise ps.PublicationError("Konten belum disetujui; publikasi diblokir.", status_code=409)
+        if pub.run_id:
+            from src.core.db import Run
+            run_row = session.get(Run, pub.run_id)
+            if run_row and run_row.status in ("failed", "qc_failed", "generation_failed"):
+                raise ps.PublicationError(f"Konten dari run '{pub.run_id}' gagal QC ({run_row.status}). Publikasi diblokir.", status_code=400)
         if pub.platform != "instagram":
             raise ps.PublicationError(
                 f"Platform '{pub.platform}' belum didukung untuk publikasi otomatis.", status_code=400)

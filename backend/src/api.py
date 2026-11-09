@@ -841,6 +841,7 @@ def get_run_status(run_id: str):
             "cost_usd": run_row.cost_usd or 0.0,
             "error": run_row.error,
             "plan": plan_data,
+            "plan_issues": json.loads(plan_row.issues_json or "[]") if plan_row and plan_row.issues_json else [],
             "video": video_preview,
             "publication": publication,
             "design": {
