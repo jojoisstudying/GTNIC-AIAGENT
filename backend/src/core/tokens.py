@@ -153,7 +153,7 @@ def tpm_limit(model: str | None = None) -> int:
                 except ValueError:
                     break
     try:
-        return max(0, int(float(config.opt("LLM_TPM_LIMIT", "0") or 0)))
+        return max(0, int(float(config.opt("LLM_TPM_LIMIT", "8000") or 8000)))
     except ValueError:
         return 0
 

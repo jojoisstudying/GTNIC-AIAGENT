@@ -164,6 +164,61 @@ class LLMClient:
     def chat(self, messages: list[dict[str, Any]], *, step: str,
              model: str | None = None, tools: list[dict[str, Any]] | None = None,
              response_format: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        """Groq dulu; bila semua key habis/cooldown: penyedia cadangan (jika diisi), lalu tunggu & coba lagi."""
+        for attempt in range(4):
+            try:
+                return self._chat_once(messages, step=step, model=model, tools=tools,
+                                       response_format=response_format, **kwargs)
+            except ProviderExhausted:
+                alt = self._fallback_chat(messages, step=step, tools=tools,
+                                          response_format=response_format, **kwargs)
+                if alt is not None:
+                    return alt
+                if attempt == 3:
+                    raise
+                wait = min(65.0, max(10.0, float(getattr(self.key_pool, "cooldown_seconds", 60.0) or 60.0)))
+                if self.emitter:
+                    self.emitter.emit("retry", "groq", step=step, status="waiting_key_cooldown",
+                                      detail={"wait_seconds": wait, "attempt": attempt + 1})
+                time.sleep(wait)
+
+    def _fallback_chat(self, messages: list[dict[str, Any]], *, step: str, **kwargs: Any) -> Any:
+        """Penyedia cadangan kompatibel OpenAI (Gemini, Cerebras, Mistral, dll).
+
+        Aktif hanya bila FALLBACK_LLM_API_KEY, FALLBACK_LLM_BASE_URL, FALLBACK_LLM_MODEL terisi di .env.
+        Mengembalikan None bila tidak dikonfigurasi atau cadangan juga gagal.
+        """
+        import json as _json
+        from types import SimpleNamespace
+        key = (config.opt("FALLBACK_LLM_API_KEY", "") or "").strip()
+        base = (config.opt("FALLBACK_LLM_BASE_URL", "") or "").strip().rstrip("/")
+        fb_model = (config.opt("FALLBACK_LLM_MODEL", "") or "").strip()
+        if not (key and base and fb_model):
+            return None
+        body: dict[str, Any] = {"model": fb_model, "messages": messages}
+        for k_src, k_dst in (("temperature", "temperature"), ("max_completion_tokens", "max_tokens"),
+                             ("tools", "tools"), ("tool_choice", "tool_choice"), ("response_format", "response_format")):
+            if kwargs.get(k_src) is not None:
+                body[k_dst] = kwargs[k_src]
+        try:
+            r = requests.post(f"{base}/chat/completions", json=body, timeout=120,
+                              headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+            data = _json.loads(r.text, object_hook=lambda d: SimpleNamespace(**d))
+            if self.emitter:
+                self.emitter.emit("retry", "fallback_llm", step=step, status="fallback_provider_used",
+                                  detail={"model": fb_model})
+            return data
+        except Exception as exc:  # noqa: BLE001
+            if self.emitter:
+                self.emitter.emit("warn", "fallback_llm", step=step, status="fallback_provider_failed",
+                                  detail={"error": str(exc)[:200]})
+            return None
+
+    def _chat_once(self, messages: list[dict[str, Any]], *, step: str,
+                   model: str | None = None, tools: list[dict[str, Any]] | None = None,
+                   response_format: dict[str, Any] | None = None, **kwargs: Any) -> Any:
         """Call chat completions with retries, key pool rotation on 429, and usage accounting."""
         primary_model = model or config.opt("GROQ_MODEL", "openai/gpt-oss-120b")
         models_to_try = [primary_model]
@@ -324,7 +379,8 @@ class LLMClient:
                 if self.emitter:
                     self.emitter.emit("retry", "groq", step=step, status="key_cooldown_429",
                                       detail={"key_id": KeyPool.mask_key(api_key),
-                                              "attempt": key_attempts})
+                                              "attempt": key_attempts,
+                                              "message": _error_message(exc)[:300]})
                 continue
             except APIStatusError as exc:
                 # APIStatusError yang tembus dari retryer (misalnya rate limit 429 atau upstream timeout dari Groq)
@@ -358,7 +414,8 @@ class LLMClient:
                         self.emitter.emit("retry", "groq", step=step, status=f"key_cooldown_{status_code}",
                                           detail={"key_id": KeyPool.mask_key(api_key),
                                                   "status_code": status_code,
-                                                  "attempt": key_attempts})
+                                                  "attempt": key_attempts,
+                                                  "message": _error_message(exc)[:300]})
                     continue
                 if self.emitter:
                     self.emitter.emit("error", "llm_request", step=step, status="failed",
