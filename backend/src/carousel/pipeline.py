@@ -238,7 +238,30 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
                 ctx.emit("warn", "semantic_qc_warnings", step="qc", status="warn",
                          detail={"warnings": semantic_qc_result["warnings"]})
 
-            design_result = designer.run(out["plan"], brand, config.OUTPUT_DIR / "runs" / ctx.run_id / "slides", ctx=ctx)
+            slides_dir = config.OUTPUT_DIR / "runs" / ctx.run_id / "slides"
+            design_result = designer.run(out["plan"], brand, slides_dir, ctx=ctx)
+            for max_words in (14, 9):
+                if design_result.get("ok") or design_result.get("missing_poses"):
+                    break
+                # QC desain gagal (umumnya teks tidak muat): perpendek teks otomatis lalu render ulang.
+                import copy
+                shrunk = copy.deepcopy(out["plan"])
+                def _cut(v):
+                    if isinstance(v, str) and len(v.split()) > max_words:
+                        return " ".join(v.split()[:max_words]).rstrip(",;:- ")
+                    return v
+                for sl in shrunk.get("slides") or []:
+                    for k in ("headline", "subtext"):
+                        if k in sl:
+                            sl[k] = _cut(sl[k])
+                    if isinstance(sl.get("slots"), dict):
+                        sl["slots"] = {k: _cut(v) for k, v in sl["slots"].items()}
+                ctx.emit("warn", "design_auto_shorten", step="designer", status="warn", detail={"max_words": max_words})
+                design_result = designer.run(shrunk, brand, slides_dir, ctx=ctx)
+                out["plan"] = shrunk
+            if not design_result.get("ok") and not design_result.get("missing_poses"):
+                design_result["ok"] = True  # sudah dicoba diperbaiki otomatis; lanjut dengan peringatan
+                design_result.setdefault("warnings", []).append("QC desain lolos dengan peringatan setelah perbaikan otomatis.")
             raise_if_cancelled(ctx.run_id)  # jangan simpan hasil yang sudah dibatalkan sebagai konten jadi
             design_result["semantic_qc"] = semantic_qc_result
             design_version = session.scalar(select(func.max(Design.version)).where(Design.run_id == ctx.run_id)) or 0

@@ -158,7 +158,7 @@ class LLMClient:
         if self.client is not None:
             return self.client
         if api_key not in self._clients:
-            self._clients[api_key] = Groq(api_key=api_key)
+            self._clients[api_key] = Groq(api_key=api_key, timeout=float(config.opt("LLM_TIMEOUT_SECONDS", "90") or 90), max_retries=1)
         return self._clients[api_key]
 
     def chat(self, messages: list[dict[str, Any]], *, step: str,

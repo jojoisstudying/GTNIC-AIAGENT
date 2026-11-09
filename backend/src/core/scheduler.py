@@ -279,7 +279,7 @@ def run_once(session_factory, publish_fn: Callable[[str], object], now: Optional
 def autopilot_once(session_factory, produce_fn: Callable[[int], object], strategy_fn: Callable[[], object] | None = None,
                    research_fn: Callable[[], object] | None = None, now: Optional[datetime] = None,
                    lead_hours: int = 48, research_every_hours: int = 24, max_concurrent: int = 1,
-                   stale_minutes: int = 45) -> dict:
+                   stale_minutes: int = 15) -> dict:
     """Pekerjaan otonom (tanpa browser): riset harian, strategi mingguan, produksi item yang mendekati jadwal.
 
     Aman terhadap restart karena semua keputusan diambil dari state database, bukan memori proses.
@@ -324,7 +324,8 @@ def autopilot_once(session_factory, produce_fn: Callable[[int], object], strateg
         last_at = _aware(last_ok.created_at) if last_ok else None
         need_research = last_at is None or (now - last_at) >= timedelta(hours=research_every_hours)
         open_future = s.scalars(select(ContentStrategyItem).where(
-            ContentStrategyItem.status.in_(["draft", "awaiting_approval", "approved", "scheduled", "producing"]),
+            ContentStrategyItem.status.in_(["draft", "awaiting_approval", "approved", "scheduled", "producing",
+                                            "running", "generation_failed"]),
             ContentStrategyItem.plan_date >= today)).first()
     if research_fn and need_research:
         try:

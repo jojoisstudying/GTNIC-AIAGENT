@@ -61,7 +61,7 @@ async def lifespan(_app):
                 SessionLocal, _autopilot_produce, _autopilot_strategy, _autopilot_research,
                 lead_hours=int(config.opt("AUTOPILOT_LEAD_HOURS", "48") or 48),
                 max_concurrent=int(config.opt("AUTOPILOT_MAX_CONCURRENT", "1") or 1),
-                stale_minutes=int(config.opt("AUTOPILOT_STALE_MINUTES", "45") or 45))
+                stale_minutes=int(config.opt("AUTOPILOT_STALE_MINUTES", "15") or 15))
             autopilot_fn = lambda: (_autopilot_assets(), _ap())  # noqa: E731
         task = asyncio.create_task(scheduler_loop(
             SessionLocal, publish_run_to_instagram, interval,
@@ -627,7 +627,7 @@ def list_layouts(role: Optional[str] = None, approved_only: bool = True):
     }
 
 
-def _get_active_running_run(session, stale_minutes: int = 45):
+def _get_active_running_run(session, stale_minutes: int = 15):
     """Mengecek apakah ada run yang sedang aktif berjalan agar tidak terjadi tabrakan proses / rate-limit AI."""
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
     rows = session.scalars(
