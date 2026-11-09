@@ -633,6 +633,20 @@ export default function Automation({ onNotify, onOpenRun }) {
     }
   };
 
+  const clearCalendar = async () => {
+    if (!window.confirm('Hapus SEMUA jadwal yang belum selesai digenerate? Konten yang sudah jadi atau terjadwal tidak ikut terhapus. Setelah itu klik "Susun Jadwal 7 Hari" untuk membuat ide baru.')) return;
+    setCalendarBusy(true);
+    try {
+      const res = await api.clearStrategyCalendar();
+      onNotify?.('success', `${res.deleted || 0} jadwal dihapus. Klik Susun Jadwal 7 Hari untuk membuat yang baru.`, 'Jadwal dihapus');
+      await load({ silent: true });
+    } catch (err) {
+      onNotify?.('error', err.message, 'Gagal menghapus jadwal');
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
   const approveAll = async () => {
     setApprovingAll(true);
     try {
@@ -791,6 +805,10 @@ export default function Automation({ onNotify, onOpenRun }) {
         <Button size="md" icon={CalendarPlus} loading={calendarBusy} onClick={generateCalendar}
           className="w-full sm:w-auto">
           Susun Jadwal 7 Hari
+        </Button>
+        <Button size="md" variant="secondary" loading={calendarBusy} onClick={clearCalendar}
+          className="w-full sm:w-auto">
+          Hapus Semua Jadwal
         </Button>
         <Button size="md" variant={needsApproval > 0 ? 'primary' : 'secondary'} icon={CheckCircle2}
           loading={approvingAll} onClick={approveAll} className="w-full sm:w-auto">

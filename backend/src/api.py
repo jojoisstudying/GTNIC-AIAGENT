@@ -1452,6 +1452,20 @@ class StrategyItemAction(BaseModel):
     approval_notes: Optional[str] = None
 
 
+@app.post("/api/v1/strategy/calendar/clear", dependencies=[Depends(auth.verify_api_key)])
+def clear_ungenerated_calendar_endpoint():
+    """Hapus semua jadwal/ide yang belum selesai digenerate (draf, menunggu, antre, diproses ulang, perlu dicek).
+    Item yang sudah jadi (terjadwal/tayang) dan yang sedang berjalan TIDAK dihapus."""
+    removable = ["draft", "awaiting_approval", "approved", "generation_failed", "needs_check", "rejected"]
+    with SessionLocal() as session:
+        items = session.scalars(select(ContentStrategyItem).where(ContentStrategyItem.status.in_(removable))).all()
+        n = len(items)
+        for it in items:
+            session.delete(it)
+        session.commit()
+    return {"deleted": n}
+
+
 @app.get("/api/v1/strategy/calendar", dependencies=[Depends(auth.verify_api_key)])
 def get_strategy_calendar_endpoint(regenerate: bool = False):
     """Melihat kalender 7 hari. GET bersifat read-only; kalender dibuat otomatis hanya jika kosong.

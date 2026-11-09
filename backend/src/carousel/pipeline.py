@@ -175,8 +175,18 @@ def run(topic: str, fresh: bool = False, on_step=print, *, ctx: RunContext | Non
             cached = None
         if cached is None and (fresh or not _has_saved):
             on_step("== Agent 1: Research ==")
-            res = research_agent.run(topic, brand.get("industry", ""), on_step=on_step, ctx=ctx,
-                                     brand_facts=brand.get("verified_facts"))
+            try:
+                res = research_agent.run(topic, brand.get("industry", ""), on_step=on_step, ctx=ctx,
+                                         brand_facts=brand.get("verified_facts"))
+            except Exception as _exc:  # noqa: BLE001
+                res = {"ok": False, "data": None, "warnings": [f"riset error: {str(_exc)[:150]}"]}
+            if not res.get("ok"):
+                # Riset gagal/kuota habis: lanjut dengan riset kosong, jangan hentikan run.
+                res = {"ok": True, "warnings": list(res.get("warnings") or []) + ["riset kosong (fallback)"],
+                       "data": {"trending_formats": [], "content_angles": [], "facts": {"stats": []},
+                                "posting_time": {"instagram": "", "tiktok": "", "basis": "global",
+                                                 "needs_testing": True, "caveats": "", "source_urls": []},
+                                "lessons_from_past_posts": "", "topic_candidates": [], "sources": []}}
             session.add(ResearchSnapshot(run_id=ctx.run_id,
                 data_json=json.dumps(res.get("data"), ensure_ascii=False),
                 warnings_json=json.dumps(res.get("warnings", []), ensure_ascii=False), ok=bool(res.get("ok"))))

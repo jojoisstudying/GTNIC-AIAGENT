@@ -217,6 +217,12 @@ export const api = {
   },
 
   // Backend memisahkan regenerate ke POST; GET hanya membaca (dan membuat kalender bila kosong).
+  clearStrategyCalendar: async () => {
+    const res = await request('/api/v1/strategy/calendar/clear', { method: 'POST', headers: protectedHeaders() });
+    if (!res.ok) throw await readError(res, 'Gagal menghapus jadwal');
+    return res.json();
+  },
+
   regenerateStrategyCalendar: async () => {
     const res = await request('/api/v1/strategy/calendar/regenerate', {
       method: 'POST',

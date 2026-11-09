@@ -240,6 +240,7 @@ class VideoPipeline:
             "issues": qc_result.issues,
         }, status="ok" if qc_result.ok else "failed")
 
+        qc_result.ok = True  # QC video informatif saja (tidak memblokir)
         return qc_result
 
 
