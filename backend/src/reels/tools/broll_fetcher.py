@@ -12,6 +12,7 @@ from src import config
 from src.carousel.tools.pexels_client import PexelsClient
 
 DEFAULT_CACHE_DIR = config.ROOT / "data" / "video_cache"
+_PEXELS_BLOCK_UNTIL = 0.0   # epoch; > now berarti Pexels sedang rate limit
 DEFAULT_FALLBACK_DIR = config.ROOT / "assets" / "default_brolls"
 
 
@@ -127,7 +128,10 @@ class BRollFetcher:
         Pexels mengurutkan hasil berdasarkan relevansi, jadi tiga teratas diacak (variasi) dan
         sisanya menyusul sebagai cadangan.
         """
-        import logging
+        import logging, time as _t
+        global _PEXELS_BLOCK_UNTIL
+        if _t.time() < _PEXELS_BLOCK_UNTIL:   # sedang kena rate limit: jangan menembak lagi, langsung cache/lokal
+            return None
         videos: list = []
         # Bertahap dilonggarkan: portrait+medium -> portrait -> semua orientasi (kompositor memotong ke 9:16).
         for orient, size in (("portrait", "medium"), ("portrait", None), (None, None)):
@@ -136,8 +140,13 @@ class BRollFetcher:
             except Exception as exc:  # noqa: BLE001 - API down / rate limit: lanjut
                 logging.getLogger(__name__).warning("Pexels search gagal (%s): %s", query, exc)
                 continue
-            if (res or {}).get("error"):
-                logging.getLogger(__name__).warning("Pexels '%s': %s", query, str(res["error"])[:160])
+            err = str((res or {}).get("error") or "")
+            if err:
+                logging.getLogger(__name__).warning("Pexels '%s': %s", query, err[:160])
+                if "429" in err or "rate limit" in err.lower():
+                    _PEXELS_BLOCK_UNTIL = _t.time() + 600   # istirahat 10 menit
+                    return None
+                break                              # error lain: jangan dilonggarkan, hemat request
             videos = list((res or {}).get("videos", []) or [])
             if videos:
                 break
