@@ -12,6 +12,7 @@ from src import config
 from src.carousel.tools.pexels_client import PexelsClient
 
 DEFAULT_CACHE_DIR = config.ROOT / "data" / "video_cache"
+_PIXABAY_BLOCK_UNTIL = 0.0
 _PEXELS_BLOCK_UNTIL = 0.0   # epoch; > now berarti Pexels sedang rate limit
 DEFAULT_FALLBACK_DIR = config.ROOT / "assets" / "default_brolls"
 
@@ -174,6 +175,63 @@ class BRollFetcher:
             return str(target)
         return None
 
+    def _search_pixabay(self, query: str, excluded: set) -> Optional[str]:
+        """Penyedia cadangan: Pixabay Videos (gratis, 100 request/60 dtk). Aktif bila PIXABAY_API_KEY terisi."""
+        import logging, time as _t
+        import requests
+        global _PIXABAY_BLOCK_UNTIL
+        key = (config.opt("PIXABAY_API_KEY", "") or "").strip()
+        if not key or _t.time() < _PIXABAY_BLOCK_UNTIL:
+            return None
+        try:
+            r = requests.get("https://pixabay.com/api/videos/", timeout=12,
+                             params={"key": key, "q": query[:100], "per_page": 8, "safesearch": "true"})
+            if r.status_code == 429:
+                _PIXABAY_BLOCK_UNTIL = _t.time() + 60
+                return None
+            if r.status_code != 200:
+                logging.getLogger(__name__).warning("Pixabay '%s': HTTP %s", query, r.status_code)
+                return None
+            hits = list((r.json() or {}).get("hits") or [])
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning("Pixabay gagal (%s): %s", query, exc)
+            return None
+
+        def _file(hit):
+            vids = hit.get("videos") or {}
+            for tier in ("medium", "small", "large", "tiny"):   # medium dulu; large terlalu besar
+                v = vids.get(tier) or {}
+                if v.get("url"):
+                    return v
+            return None
+
+        # utamakan klip vertikal (tinggi > lebar), sisanya menyusul
+        hits.sort(key=lambda h: 0 if ((_file(h) or {}).get("height", 0) > (_file(h) or {}).get("width", 1)) else 1)
+        for h in hits:
+            v = _file(h)
+            if not v:
+                continue
+            target = self.cache_dir / f"pixabay_{h.get('id') or random.randint(1000, 999999)}.mp4"
+            cached = target.exists() and target.stat().st_size > 1000
+            if cached and self._fingerprint(str(target)) in excluded:
+                continue
+            if not cached and not self._download_video(v["url"], target):
+                continue
+            if self._fingerprint(str(target)) in excluded:
+                continue
+            query_file = self.cache_dir / f"{self._get_cache_key(query)}.mp4"
+            if not query_file.exists():
+                try:
+                    shutil.copyfile(target, query_file)
+                except Exception:  # noqa: BLE001
+                    pass
+            return str(target)
+        return None
+
+    def _search_stock(self, query: str, excluded: set) -> Optional[str]:
+        """Pexels dulu; kalau kosong/rate limit, lanjut ke Pixabay."""
+        return self._search_and_download(query, excluded) or self._search_pixabay(query, excluded)
+
     def fetch_clip(
         self,
         queries: List[str],
@@ -211,9 +269,9 @@ class BRollFetcher:
                     else:
                         self.last_info.update(source="cache", query=q)
                         return cached
-            found = self._search_and_download(q, excluded)
+            found = self._search_stock(q, excluded)
             if found:
-                self.last_info.update(source="pexels", query=q)
+                self.last_info.update(source="pixabay" if "pixabay_" in found else "pexels", query=q)
                 return found
 
         # 1b. Keyword terlalu spesifik: coba kata terakhirnya saja (mis. "espresso machine pressure" -> "pressure" ->
@@ -221,9 +279,9 @@ class BRollFetcher:
         for q in queries:
             words = q.split()
             for w in ([words[0], words[-1]] if len(words) > 1 else []):
-                found = self._search_and_download(w, excluded)
+                found = self._search_stock(w, excluded)
                 if found:
-                    self.last_info.update(source="pexels", query=w)
+                    self.last_info.update(source="pixabay" if "pixabay_" in found else "pexels", query=w)
                     return found
 
         # 2. Pexels gagal / offline: cache keyword mana pun yang belum terpakai
