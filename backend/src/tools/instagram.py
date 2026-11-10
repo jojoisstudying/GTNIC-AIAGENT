@@ -9,6 +9,7 @@ Catatan penting:
   Reels, `impressions` untuk semua tipe saat ini) dikembalikan 400 oleh Meta. Nilai seperti
   itu dibiarkan NULL — bukan 0 — agar UI bisa membedakan "belum tersedia" dari "nol".
 """
+import re
 import time
 
 import requests
@@ -50,15 +51,32 @@ def _check(r) -> dict:
     return data
 
 
+def _redact(msg) -> str:
+    """Buang access_token dari pesan error supaya tidak bocor ke UI/log."""
+    return re.sub(r"access_token=[^&\s)'\"]+", "access_token=***", str(msg))
+
+
+def _with_retry(call):
+    """Coba ulang gangguan jaringan sesaat (DNS/timeout) sebelum menyerah."""
+    last = None
+    for i in range(4):
+        try:
+            return call()
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last = exc
+            time.sleep(2 * (i + 1))
+    raise RuntimeError("Tidak dapat menghubungi Instagram (jaringan/DNS server): " + _redact(last)[:200])
+
+
 def _post(path: str, *, ctx=None, **data) -> dict:
     token = config.need("IG_TOKEN")
     url = f"{_base()}/{path}"
     payload = {**data, "access_token": token}
     if ctx and ctx.http:
-        response = ctx.http.request("POST", url, step="instagram", provider="instagram",
-                                    data=payload, timeout=60)
+        response = _with_retry(lambda: ctx.http.request("POST", url, step="instagram", provider="instagram",
+                                                         data=payload, timeout=60))
     else:
-        response = requests.post(url, data=payload, timeout=60)
+        response = _with_retry(lambda: requests.post(url, data=payload, timeout=60))
     return _check(response)
 
 
@@ -67,10 +85,10 @@ def _get(path: str, *, ctx=None, **params) -> dict:
     url = f"{_base()}/{path}"
     query = {**params, "access_token": token}
     if ctx and ctx.http:
-        response = ctx.http.request("GET", url, step="instagram", provider="instagram",
-                                    params=query, timeout=60)
+        response = _with_retry(lambda: ctx.http.request("GET", url, step="instagram", provider="instagram",
+                                                         params=query, timeout=60))
     else:
-        response = requests.get(url, params=query, timeout=60)
+        response = _with_retry(lambda: requests.get(url, params=query, timeout=60))
     return _check(response)
 
 
